@@ -2,11 +2,16 @@ namespace OnlineMsgServer.Common
 {
     class Log
     {
-        public static void Debug(string msg)
+        public static void Normal(string msg)
         {
-#if DEBUG
-            Console.WriteLine(msg);
-#endif
+            DateTime now = DateTime.Now;
+            string time = now.ToString("yyyy-MM-dd HH:mm:ss");
+            Console.WriteLine($"[{time}][Normal] {msg}");
+        }
+
+        public static void Exception(string msg)
+        {
+            Normal("[Exception] " + msg);
         }
     }
 }

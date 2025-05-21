@@ -17,7 +17,7 @@ namespace OnlineMsgServer
             }
             catch (Exception e)
             {
-                Console.WriteLine(e.Message);
+                Log.Exception(e.Message);
             }
         }
 
@@ -32,21 +32,17 @@ namespace OnlineMsgServer
             var wssv = new WebSocketServer(ListenPort, false);
             wssv.AddWebSocketService<WsService>("/");
             wssv.Start();
-            Console.WriteLine("已开启ws监听, 端口: " + ListenPort);
+            Log.Normal("已开启ws监听, 端口: " + ListenPort);
 
             bool loopFlag = true;
             while (loopFlag)
             {
 #if DEBUG
-                Console.WriteLine("输入exit退出程序");
                 string input = Console.ReadLine() ?? "";
                 switch (input.Trim())
                 {
                     case "exit":
                         loopFlag = false;
-                        break;
-                    case "port":
-                        Console.WriteLine("服务器开放端口为" + ListenPort);
                         break;
                     default:
                         break;

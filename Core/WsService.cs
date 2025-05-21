@@ -13,19 +13,23 @@ namespace OnlineMsgServer.Core
         {
             try
             {
-                Common.Log.Debug(ID + " " + Context.UserEndPoint.ToString() + ":" + e.Data);
+                Log.Debug(ID + " " + Context.UserEndPoint.ToString() + ":" + e.Data);
                 //从base64字符串解密
                 string decryptString = RsaService.Decrypt(e.Data);
                 //json 反序列化
                 Message? message = Message.JsonStringParse(decryptString);
                 if (message != null)
                 {
-                    await message.HandlerAndMeasure(ID, Sessions);
+#if DEBUG
+                    await MsgService.HandlerAndMeasure(ID, Sessions, message);
+#else
+                    await MsgService.Handler(ID, Sessions, message);
+#endif
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine("Error processing message: " + ex.Message);
+                Common.Log.Exception("Error processing message: " + ex.Message);
             }
         }
 
@@ -33,12 +37,11 @@ namespace OnlineMsgServer.Core
         {
             iPEndPoint = Context.UserEndPoint;
             UserService.AddUserConnect(ID);
-            Common.Log.Debug(ID + " " + iPEndPoint.ToString() + " Conection Open");
+            Common.Log.Normal(ID + " " + iPEndPoint.ToString() + " Conection Open");
             //连接时回复公钥，不加密
             Message response = new()
             {
-                Type = "PublicKey",
-                Data = RsaService.GetRsaPublickKey(),
+                PublicKey = RsaService.GetServerRsaPublickKey(),
             };
             string jsonString = response.ToJsonString();
             Send(jsonString);
@@ -47,13 +50,13 @@ namespace OnlineMsgServer.Core
         protected override void OnClose(CloseEventArgs e)
         {
             UserService.RemoveUserConnectByID(ID);
-            Common.Log.Debug(this.ID + " " + this.iPEndPoint.ToString() + " Conection Close" + e.Reason);
+            Common.Log.Normal(this.ID + " " + this.iPEndPoint.ToString() + " Conection Close" + e.Reason);
         }
 
         protected override void OnError(ErrorEventArgs e)
         {
             UserService.RemoveUserConnectByID(ID);
-            Common.Log.Debug(this.ID + " " + this.iPEndPoint.ToString() + " Conection Error Close" + e.Message);
+            Common.Log.Normal(this.ID + " " + this.iPEndPoint.ToString() + " Conection Error Close" + e.Message);
         }
     }
 }

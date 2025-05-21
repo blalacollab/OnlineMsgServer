@@ -10,13 +10,7 @@ namespace OnlineMsgServer.Common
         public string ID { get; set; } = ID;
 
         /// <summary>
-        /// 用户名，在客户端随意指定
-        /// </summary>
-        public string? Name { get; set; }
-
-
-        /// <summary>
-        /// 用户公钥 用于消息加密发送给用户
+        /// 用户公钥
         /// </summary>
         public string? PublicKey { get; set; }
     }

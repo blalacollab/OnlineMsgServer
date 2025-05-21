@@ -59,10 +59,10 @@ namespace OnlineMsgServer.Core
         }
 
         /// <summary>
-        /// 以base64格式导出公钥字符串
+        /// 以base64格式导出服务器公钥字符串
         /// </summary>
         /// <returns>公钥字符串，base64格式</returns>
-        public static string GetRsaPublickKey()
+        public static string GetServerRsaPublickKey()
         {
             lock (_RsaLock)
             {

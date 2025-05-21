@@ -36,13 +36,13 @@ namespace OnlineMsgServer.Core
         }
 
         /// <summary>
-        /// 通过publickey返回用户列表
+        /// 通过publickey返回用户
         /// </summary>
-        public static List<User> GetUserListByPublicKey(string publicKey)
+        public static User? GetUserListByPublicKey(string publicKey)
         {
             lock (_UserListLock)
             {
-                return _UserList.FindAll(u => u.PublicKey == publicKey);
+                return _UserList.Find(u => u.PublicKey == publicKey);
             }
         }
 
@@ -50,20 +50,27 @@ namespace OnlineMsgServer.Core
         /// <summary>
         /// 通过wsid设置用户PublicKey
         /// </summary>
-        public static void UserLogin(string wsid, string publickey, string name)
+        public static bool UserLogin(string wsid, string publickey)
         {
             lock (_UserListLock)
             {
+                if (IsPublicKeyExist(publickey))
+                {
+                    //假设用户通过[安全的渠道]获取他人公钥建立转发通道，即公钥不会被攻击者知晓
+                    //这里设置不允许重复公钥登记
+                    //如果攻击者从广播中或是其他渠道知晓用户公钥，在用户未退出连接前无法干扰用户发送消息
+                    //所以客户端在进行广播前建议使用新生成公私钥，转发时使用另一套公私钥
+                    return false;
+                }
                 User? user = _UserList.Find(u => u.ID == wsid);
                 if (user != null)
                 {
                     user.PublicKey = publickey;
-                    user.Name = name;
-                    Console.WriteLine(user.ID + " 登记成功");
+                    return true;
                 }
                 else
                 {
-                    throw new Exception("用户不存在");
+                    return false;
                 }
             }
         }
@@ -85,34 +92,18 @@ namespace OnlineMsgServer.Core
         }
 
         /// <summary>
-        /// 通过wsid获取UserName
+        /// 查询PublicKey是否已登记
         /// </summary>
-        public static string? GetUserNameByID(string wsid)
-        {
-            lock (_UserListLock)
-            {
-                User? user = _UserList.Find(u => u.ID == wsid);
-                if (user != null)
-                {
-                    return user.Name;
-                }
-                return null;
-            }
-        }
-
-        /// <summary>
-        /// 通过用户PublicKey获取wsid
-        /// </summary>
-        public static string? GetUserIDByPublicKey(string publicKey)
+        public static bool IsPublicKeyExist(string publicKey)
         {
             lock (_UserListLock)
             {
                 User? user = _UserList.Find(u => u.PublicKey == publicKey);
                 if (user != null)
                 {
-                    return user.ID;
+                    return true;
                 }
-                return null;
+                return false;
             }
         }
 
