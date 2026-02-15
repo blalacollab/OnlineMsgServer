@@ -128,3 +128,28 @@ broadcast\n{key}\n{payload}\n{timestamp}\n{nonce}
 - `CHALLENGE_TTL_SECONDS`：challenge 有效期
 - `MAX_CLOCK_SKEW_SECONDS`：允许时钟偏移
 - `REPLAY_WINDOW_SECONDS`：防重放窗口
+
+## 测试环境一键部署（WS，不强制WSS）
+
+```bash
+cd /Users/<user>/Codes/OnlineMsgServer
+bash deploy/deploy_test_ws.sh
+```
+
+脚本将自动：
+- 生成/复用服务端 RSA 私钥（`deploy/keys`）
+- 构建镜像并重启容器
+- 以 `REQUIRE_WSS=false` 启动服务
+- 输出可直接用于前端的 `ws://` 地址
+
+## React 前端
+
+项目内置 React 前端目录：`/Users/<user>/Codes/OnlineMsgServer/web-client`
+
+```bash
+cd web-client
+npm install
+npm run dev
+```
+
+前端界面默认隐藏协议细节，支持在“高级连接设置”里手动指定服务器地址。

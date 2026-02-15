@@ -1,3 +1,7 @@
 bin/
 obj/
 todolist.md
+web-client/node_modules/
+web-client/dist/
+deploy/certs/
+deploy/keys/

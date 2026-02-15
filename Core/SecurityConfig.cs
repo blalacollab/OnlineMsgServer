@@ -3,7 +3,7 @@ namespace OnlineMsgServer.Core
     internal sealed class SecurityConfig
     {
         public int ListenPort { get; init; } = 13173;
-        public bool RequireWss { get; init; } = true;
+        public bool RequireWss { get; init; } = false;
         public string? TlsCertPath { get; init; }
         public string? TlsCertPassword { get; init; }
 
@@ -26,7 +26,7 @@ namespace OnlineMsgServer.Core
             return new SecurityConfig
             {
                 ListenPort = GetInt("LISTEN_PORT", 13173, 1),
-                RequireWss = GetBool("REQUIRE_WSS", true),
+                RequireWss = GetBool("REQUIRE_WSS", false),
                 TlsCertPath = GetString("TLS_CERT_PATH"),
                 TlsCertPassword = GetString("TLS_CERT_PASSWORD"),
                 ServerPrivateKeyBase64 = GetString("SERVER_PRIVATE_KEY_B64"),

@@ -11,7 +11,7 @@ COPY . ./
 RUN dotnet restore
 
 # 编译项目
-RUN dotnet publish -c Release -o out
+RUN dotnet publish ./OnlineMsgServer.csproj -c Release -o out
 
 # 使用更小的运行时镜像
 FROM mcr.microsoft.com/dotnet/runtime:8.0 AS base
@@ -20,7 +20,7 @@ FROM mcr.microsoft.com/dotnet/runtime:8.0 AS base
 WORKDIR /app
 
 # 运行时安全配置默认值（可在 docker run 时覆盖）
-ENV REQUIRE_WSS=true \
+ENV REQUIRE_WSS=false \
     MAX_CONNECTIONS=1000 \
     MAX_MESSAGE_BYTES=65536 \
     RATE_LIMIT_COUNT=30 \

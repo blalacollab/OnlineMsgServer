@@ -20,7 +20,7 @@ namespace OnlineMsgServer.Core
                 string ip = iPEndPoint.Address.ToString();
                 if (IsIpBlocked(ip))
                 {
-                    Log.Security("message_rejected_ip_blocked", $"wsid={ID} ip={ip}");
+                    Common.Log.Security("message_rejected_ip_blocked", $"wsid={ID} ip={ip}");
                     Context.WebSocket.Close(CloseStatusCode.PolicyViolation, "ip blocked");
                     return;
                 }
@@ -28,7 +28,7 @@ namespace OnlineMsgServer.Core
                 int messageSize = e.RawData?.Length ?? 0;
                 if (messageSize > config.MaxMessageBytes)
                 {
-                    Log.Security("message_too_large", $"wsid={ID} size={messageSize}");
+                    Common.Log.Security("message_too_large", $"wsid={ID} size={messageSize}");
                     BlockIp(ip, config.IpBlockSeconds);
                     Context.WebSocket.Close(CloseStatusCode.PolicyViolation, "message too large");
                     return;
@@ -36,7 +36,7 @@ namespace OnlineMsgServer.Core
 
                 if (UserService.IsRateLimitExceeded(ID, config.RateLimitCount, config.RateLimitWindowSeconds))
                 {
-                    Log.Security("rate_limited", $"wsid={ID} ip={ip}");
+                    Common.Log.Security("rate_limited", $"wsid={ID} ip={ip}");
                     BlockIp(ip, config.IpBlockSeconds);
                     Context.WebSocket.Close(CloseStatusCode.PolicyViolation, "rate limited");
                     return;
@@ -54,7 +54,7 @@ namespace OnlineMsgServer.Core
             }
             catch (Exception ex)
             {
-                Log.Security("message_process_error", $"wsid={ID} error={ex.Message}");
+                Common.Log.Security("message_process_error", $"wsid={ID} error={ex.Message}");
             }
         }
 
@@ -66,14 +66,14 @@ namespace OnlineMsgServer.Core
 
             if (IsIpBlocked(ip))
             {
-                Log.Security("connection_blocked_ip", $"ip={ip}");
+                Common.Log.Security("connection_blocked_ip", $"ip={ip}");
                 Context.WebSocket.Close(CloseStatusCode.PolicyViolation, "ip blocked");
                 return;
             }
 
             if (UserService.GetConnectionCount() >= config.MaxConnections)
             {
-                Log.Security("connection_rejected_max", $"ip={ip} max={config.MaxConnections}");
+                Common.Log.Security("connection_rejected_max", $"ip={ip} max={config.MaxConnections}");
                 Context.WebSocket.Close(CloseStatusCode.PolicyViolation, "server busy");
                 return;
             }
