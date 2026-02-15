@@ -16,12 +16,29 @@ namespace OnlineMsgServer.Common
             {
                 try
                 {
-                    string broadcastData = Data!.GetString();
+                    if (!UserService.IsAuthenticated(wsid))
+                    {
+                        Log.Security("broadcast_denied_unauthenticated", $"wsid={wsid}");
+                        return;
+                    }
+
+                    string key = Key?.Trim() ?? "";
+                    if (!SignedMessagePayload.TryParse(Data, out SignedMessagePayload payload, out string parseError))
+                    {
+                        Log.Security("broadcast_payload_invalid", $"wsid={wsid} reason={parseError}");
+                        return;
+                    }
+
+                    if (!SecurityValidator.VerifySignedMessage(wsid, Type, key, payload, out string securityReason))
+                    {
+                        Log.Security("broadcast_security_failed", $"wsid={wsid} reason={securityReason}");
+                        return;
+                    }
 
                     Message response = new()
                     {
                         Type = "broadcast",
-                        Data = broadcastData,
+                        Data = payload.Payload,
                         Key = UserService.GetUserNameByID(wsid),
                     };
 
@@ -41,7 +58,7 @@ namespace OnlineMsgServer.Common
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine(ex.Message);
+                    Log.Security("broadcast_error", $"wsid={wsid} error={ex.Message}");
                 }
             });
         }

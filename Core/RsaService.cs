@@ -28,33 +28,32 @@ namespace OnlineMsgServer.Core
         }
 
         /// <summary>
-        /// 导入指定私钥，如果不存在则创建并保存
+        /// 导入服务端私钥
         /// </summary>
-        public static void LoadRsaPkey()
+        public static void LoadRsaPkey(SecurityConfig config)
         {
             lock (_RsaLock)
             {
-                string pkeyPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @".pkey");
-                if (File.Exists(pkeyPath))
+                if (!string.IsNullOrWhiteSpace(config.ServerPrivateKeyBase64))
                 {
-                    DateTime lastModifyTime = File.GetLastWriteTime(pkeyPath);
-                    bool isOneYearApart = Math.Abs((DateTime.Now - lastModifyTime).TotalDays) >= 365;
-                    if (isOneYearApart)
-                    {
-                        File.WriteAllText(pkeyPath, Convert.ToBase64String(_Rsa.ExportPkcs8PrivateKey()));
-                    }
-                    else
-                    {
-                        string pkey = File.ReadAllText(pkeyPath);
-                        _Rsa.ImportPkcs8PrivateKey(Convert.FromBase64String(pkey), out _);
-                    }
-
-                }
-                else
-                {
-                    File.WriteAllText(pkeyPath, Convert.ToBase64String(_Rsa.ExportPkcs8PrivateKey()));
+                    _Rsa.ImportPkcs8PrivateKey(Convert.FromBase64String(config.ServerPrivateKeyBase64), out _);
+                    return;
                 }
 
+                if (!string.IsNullOrWhiteSpace(config.ServerPrivateKeyPath))
+                {
+                    string pkey = File.ReadAllText(config.ServerPrivateKeyPath).Trim();
+                    _Rsa.ImportPkcs8PrivateKey(Convert.FromBase64String(pkey), out _);
+                    return;
+                }
+
+                if (config.AllowEphemeralServerKey)
+                {
+                    OnlineMsgServer.Common.Log.Security("server_key_ephemeral", "using in-memory generated private key");
+                    return;
+                }
+
+                throw new InvalidOperationException("服务端私钥未配置。请设置 SERVER_PRIVATE_KEY_B64 或 SERVER_PRIVATE_KEY_PATH。");
             }
         }
 
@@ -82,6 +81,10 @@ namespace OnlineMsgServer.Core
                 byte[] secretBytes = Convert.FromBase64String(secret);
                 int size = secretBytes.Length;
                 int blockSize = 256;
+                if (size % blockSize != 0)
+                {
+                    throw new FormatException("ciphertext length invalid");
+                }
                 int blockCount = size / blockSize;
                 List<byte> decryptList = [];
                 for (int i = 0; i < blockCount; i++)
@@ -111,12 +114,51 @@ namespace OnlineMsgServer.Core
             }
         }
 
+        public static bool VerifySignature(string publicKeyBase64, string src, string signatureBase64)
+        {
+            lock (_PublicRsaLock)
+            {
+                try
+                {
+                    _PublicRsa.ImportSubjectPublicKeyInfo(Convert.FromBase64String(publicKeyBase64), out _);
+                    byte[] srcBytes = Encoding.UTF8.GetBytes(src);
+                    byte[] signatureBytes = Convert.FromBase64String(signatureBase64);
+                    return _PublicRsa.VerifyData(srcBytes, signatureBytes, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+                }
+                catch
+                {
+                    return false;
+                }
+            }
+        }
+
+        public static bool IsPublicKeyValid(string publicKeyBase64)
+        {
+            lock (_PublicRsaLock)
+            {
+                try
+                {
+                    _PublicRsa.ImportSubjectPublicKeyInfo(Convert.FromBase64String(publicKeyBase64), out _);
+                    return true;
+                }
+                catch
+                {
+                    return false;
+                }
+            }
+        }
+
         private static string RsaEncrypt(RSA rsa, string src)
         {
             byte[] srcBytes = Encoding.UTF8.GetBytes(src);
             int size = srcBytes.Length;
             int blockSize = 190;
-            int blockCount = size / blockSize + 1;
+            if (size == 0)
+            {
+                return "";
+            }
+
+            int blockCount = (size + blockSize - 1) / blockSize;
             List<byte> encryptList = [];
             for (int i = 0; i < blockCount; i++)
             {

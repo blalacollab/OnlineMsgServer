@@ -8,5 +8,10 @@ namespace OnlineMsgServer.Common
             Console.WriteLine(msg);
 #endif
         }
+
+        public static void Security(string eventName, string details)
+        {
+            Console.WriteLine($"[SECURITY] {DateTime.UtcNow:O} {eventName} {details}");
+        }
     }
 }

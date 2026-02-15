@@ -16,14 +16,37 @@ namespace OnlineMsgServer.Common
             {
                 try
                 {
-                    string forwardPublickKey = Key!;
-                    string forwardData = Data!.GetString();
+                    if (!UserService.IsAuthenticated(wsid))
+                    {
+                        Log.Security("forward_denied_unauthenticated", $"wsid={wsid}");
+                        return;
+                    }
+
+                    if (string.IsNullOrWhiteSpace(Key))
+                    {
+                        Log.Security("forward_invalid_target", $"wsid={wsid}");
+                        return;
+                    }
+                    string forwardPublickKey = Key.Trim();
+
+                    if (!SignedMessagePayload.TryParse(Data, out SignedMessagePayload payload, out string parseError))
+                    {
+                        Log.Security("forward_payload_invalid", $"wsid={wsid} reason={parseError}");
+                        return;
+                    }
+
+                    if (!SecurityValidator.VerifySignedMessage(wsid, Type, forwardPublickKey, payload, out string securityReason))
+                    {
+                        Log.Security("forward_security_failed", $"wsid={wsid} reason={securityReason}");
+                        return;
+                    }
+
                     string fromPublicKey = UserService.GetUserPublicKeyByID(wsid)!;
 
                     Message response = new()
                     {
                         Type = "forward",
-                        Data = forwardData,
+                        Data = payload.Payload,
                         Key = fromPublicKey,
                     };
 
@@ -31,6 +54,11 @@ namespace OnlineMsgServer.Common
                     string encryptString = RsaService.EncryptForClient(forwardPublickKey, jsonString);
 
                     List<User> userList = UserService.GetUserListByPublicKey(forwardPublickKey);
+                    if (userList.Count == 0)
+                    {
+                        Log.Security("forward_target_offline_or_untrusted", $"wsid={wsid}");
+                        return;
+                    }
 
                     foreach (IWebSocketSession session in Sessions.Sessions)
                     {
@@ -43,7 +71,7 @@ namespace OnlineMsgServer.Common
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine(ex.Message);
+                    Log.Security("forward_error", $"wsid={wsid} error={ex.Message}");
                 }
             });
         }
