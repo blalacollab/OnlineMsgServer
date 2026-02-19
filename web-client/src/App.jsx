@@ -12,16 +12,29 @@ import {
 const STATUS_TEXT = {
   idle: "未连接",
   connecting: "连接中",
-  handshaking: "握手中",
-  authenticating: "认证中",
+  handshaking: "连接中",
+  authenticating: "连接中",
   ready: "已连接",
   error: "异常断开"
 };
 const STORAGE_DISPLAY_NAME_KEY = "oms_display_name";
+const STORAGE_SERVER_URLS_KEY = "oms_server_urls";
+const STORAGE_CURRENT_SERVER_URL_KEY = "oms_current_server_url";
+const MAX_SERVER_URLS = 8;
+const CHANNEL_BROADCAST = "broadcast";
+const CHANNEL_PRIVATE = "private";
+
+function isLikelyLocalHost(host) {
+  const value = (host || "").toLowerCase();
+  return value === "localhost" || value === "127.0.0.1" || value === "::1";
+}
 
 function getDefaultServerUrl() {
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
   const host = window.location.hostname || "localhost";
+  if (protocol === "wss" && !isLikelyLocalHost(host)) {
+    return `${protocol}://${host}/msgws/`;
+  }
   return `${protocol}://${host}:13173/`;
 }
 
@@ -44,6 +57,52 @@ function normalizeServerUrl(input) {
     value += "/";
   }
   return value;
+}
+
+function dedupeServerUrls(urls) {
+  const result = [];
+  const seen = new Set();
+  for (const item of urls) {
+    const normalized = normalizeServerUrl(String(item || ""));
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    result.push(normalized);
+  }
+  return result;
+}
+
+function getInitialServerUrls() {
+  const fallback = [getDefaultServerUrl()];
+  try {
+    const raw = globalThis.localStorage?.getItem(STORAGE_SERVER_URLS_KEY);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return fallback;
+    const normalized = dedupeServerUrls(parsed);
+    return normalized.length > 0 ? normalized : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function getInitialServerUrl(serverUrls) {
+  try {
+    const stored = globalThis.localStorage?.getItem(STORAGE_CURRENT_SERVER_URL_KEY);
+    const normalized = normalizeServerUrl(stored || "");
+    if (normalized) {
+      return normalized;
+    }
+  } catch {
+    // ignore
+  }
+  return serverUrls[0] || getDefaultServerUrl();
+}
+
+function appendServerUrl(list, urlText) {
+  const normalized = normalizeServerUrl(urlText);
+  if (!normalized) return list;
+  const next = [normalized, ...list.filter((item) => item !== normalized)];
+  return next.slice(0, MAX_SERVER_URLS);
 }
 
 function toggleWsProtocol(urlText) {
@@ -119,7 +178,20 @@ function getCryptoIssueMessage() {
   return "";
 }
 
+function inferMessageChannel(item) {
+  if (item?.channel === CHANNEL_PRIVATE || item?.channel === CHANNEL_BROADCAST) {
+    return item.channel;
+  }
+  if (item?.sender === "私聊消息" || String(item?.subtitle || "").includes("私聊")) {
+    return CHANNEL_PRIVATE;
+  }
+  return CHANNEL_BROADCAST;
+}
+
 export default function App() {
+  const initialServerUrls = getInitialServerUrls();
+  const AUTO_SCROLL_THRESHOLD = 24;
+
   const wsRef = useRef(null);
   const identityRef = useRef(null);
   const identityPromiseRef = useRef(null);
@@ -132,25 +204,49 @@ export default function App() {
   const messageCopyTimerRef = useRef(0);
   const draftComposingRef = useRef(false);
   const targetComposingRef = useRef(false);
+  const messageListRef = useRef(null);
+  const stickToBottomRef = useRef(true);
 
   const [status, setStatus] = useState("idle");
   const [statusHint, setStatusHint] = useState("点击连接开始聊天");
-  const [serverUrl, setServerUrl] = useState(getDefaultServerUrl());
+  const [serverUrls, setServerUrls] = useState(initialServerUrls);
+  const [serverUrl, setServerUrl] = useState(() => getInitialServerUrl(initialServerUrls));
   const [displayName, setDisplayName] = useState(getInitialDisplayName);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [targetKey, setTargetKey] = useState("");
+  const [directMode, setDirectMode] = useState(false);
   const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState([]);
+  const [showSystemMessages, setShowSystemMessages] = useState(false);
   const [sending, setSending] = useState(false);
   const [certFingerprint, setCertFingerprint] = useState("");
   const [myPublicKey, setMyPublicKey] = useState("");
   const [publicKeyBusy, setPublicKeyBusy] = useState(false);
   const [copyNotice, setCopyNotice] = useState("");
   const [copiedMessageId, setCopiedMessageId] = useState("");
+  const [activeMobileTab, setActiveMobileTab] = useState("chat");
 
   const isConnected = status === "ready";
   const canConnect = status === "idle" || status === "error";
+  const canDisconnect = status !== "idle" && status !== "error";
   const canSend = isConnected && draft.trim().length > 0 && !sending;
+  const activeChannel = directMode ? CHANNEL_PRIVATE : CHANNEL_BROADCAST;
+  const mobileConnectText = useMemo(() => {
+    if (status === "ready") return "已连接";
+    if (status === "error") return "连接失败，点击重试";
+    if (status === "idle") return "未连接，点击连接";
+    return "连接中";
+  }, [status]);
+  const visibleMessages = useMemo(
+    () =>
+      messages.filter((item) => {
+        if (item.role === "system") {
+          return showSystemMessages;
+        }
+        return inferMessageChannel(item) === activeChannel;
+      }),
+    [messages, showSystemMessages, activeChannel]
+  );
 
   const statusClass = useMemo(() => {
     if (status === "ready") return "ok";
@@ -176,6 +272,25 @@ export default function App() {
   }, [displayName]);
 
   useEffect(() => {
+    try {
+      globalThis.localStorage?.setItem(STORAGE_SERVER_URLS_KEY, JSON.stringify(serverUrls));
+    } catch {
+      // ignore storage failures
+    }
+  }, [serverUrls]);
+
+  useEffect(() => {
+    try {
+      const value = serverUrl.trim();
+      if (value) {
+        globalThis.localStorage?.setItem(STORAGE_CURRENT_SERVER_URL_KEY, value);
+      }
+    } catch {
+      // ignore storage failures
+    }
+  }, [serverUrl]);
+
+  useEffect(() => {
     return () => {
       manualCloseRef.current = true;
       if (authTimeoutRef.current) {
@@ -197,6 +312,44 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    const root = document.documentElement;
+    const vv = globalThis.visualViewport;
+
+    const updateViewportVars = () => {
+      const top = vv ? Math.max(0, vv.offsetTop) : 0;
+      const height = vv ? vv.height : globalThis.innerHeight;
+      root.style.setProperty("--vv-offset-top", `${top}px`);
+      root.style.setProperty("--vv-height", `${height}px`);
+    };
+
+    updateViewportVars();
+
+    vv?.addEventListener("resize", updateViewportVars);
+    vv?.addEventListener("scroll", updateViewportVars);
+    globalThis.addEventListener("resize", updateViewportVars);
+
+    return () => {
+      vv?.removeEventListener("resize", updateViewportVars);
+      vv?.removeEventListener("scroll", updateViewportVars);
+      globalThis.removeEventListener("resize", updateViewportVars);
+      root.style.removeProperty("--vv-offset-top");
+      root.style.removeProperty("--vv-height");
+    };
+  }, []);
+
+  useEffect(() => {
+    const list = messageListRef.current;
+    if (!list) return;
+    list.scrollTop = list.scrollHeight;
+  }, []);
+
+  useEffect(() => {
+    const list = messageListRef.current;
+    if (!list || !stickToBottomRef.current) return;
+    list.scrollTop = list.scrollHeight;
+  }, [visibleMessages.length]);
+
   function pushSystem(text) {
     setMessages((prev) => [
       ...prev,
@@ -209,7 +362,7 @@ export default function App() {
     ]);
   }
 
-  function pushIncoming(sender, text, subtitle = "") {
+  function pushIncoming(sender, text, subtitle = "", channel = CHANNEL_BROADCAST) {
     setMessages((prev) => [
       ...prev,
       {
@@ -217,13 +370,14 @@ export default function App() {
         role: "incoming",
         sender,
         subtitle,
+        channel,
         content: text,
         ts: Date.now()
       }
     ]);
   }
 
-  function pushOutgoing(text, subtitle = "") {
+  function pushOutgoing(text, subtitle = "", channel = CHANNEL_BROADCAST) {
     setMessages((prev) => [
       ...prev,
       {
@@ -231,6 +385,7 @@ export default function App() {
         role: "outgoing",
         sender: "我",
         subtitle,
+        channel,
         content: text,
         ts: Date.now()
       }
@@ -348,12 +503,13 @@ export default function App() {
 
     manualCloseRef.current = false;
     setStatus("connecting");
-    setStatusHint("正在建立连接...");
+    setStatusHint("正在连接服务器...");
     setCertFingerprint("");
     serverPublicKeyRef.current = "";
     fallbackTriedRef.current = false;
 
     setServerUrl(normalizedUrl);
+    setServerUrls((prev) => appendServerUrl(prev, normalizedUrl));
     openSocket(normalizedUrl);
   }
 
@@ -373,8 +529,8 @@ export default function App() {
 
     ws.onopen = async () => {
       setStatus("handshaking");
-      setStatusHint("连接成功，等待服务端握手");
-      pushSystem("连接建立，正在获取安全参数");
+      setStatusHint("已连接，正在准备聊天...");
+      pushSystem("连接已建立");
     };
 
     ws.onerror = () => {
@@ -399,16 +555,16 @@ export default function App() {
         if (fallbackUrl) {
           fallbackTriedRef.current = true;
           setStatus("connecting");
-          setStatusHint("连接失败，正在尝试另一种连接方式...");
-          pushSystem(`切换连接方式重试：${fallbackUrl}`);
+          setStatusHint("正在自动重试连接...");
+          pushSystem("连接方式切换中，正在重试");
           openSocket(fallbackUrl);
           return;
         }
       }
 
       setStatus("error");
-      setStatusHint("服务器关闭连接，可能是 ws/wss 协议或证书配置不匹配");
-      pushSystem(`连接关闭 (${event.code})：${event.reason || "服务器主动断开"}`);
+      setStatusHint("连接已中断，请检查网络或服务器地址");
+      pushSystem(`连接关闭 (${event.code})：${event.reason || "连接中断"}`);
       if (authTimeoutRef.current) {
         clearTimeout(authTimeoutRef.current);
         authTimeoutRef.current = 0;
@@ -459,15 +615,15 @@ export default function App() {
     serverPublicKeyRef.current = hello.publicKey;
     setCertFingerprint(hello.certFingerprintSha256 || "");
     setStatus("authenticating");
-    setStatusHint("正在进行身份认证（首次可能需要几秒生成密钥）...");
+    setStatusHint("正在完成身份验证...");
     if (authTimeoutRef.current) {
       clearTimeout(authTimeoutRef.current);
     }
     authTimeoutRef.current = window.setTimeout(() => {
       if (statusRef.current === "authenticating") {
         setStatus("error");
-        setStatusHint("身份认证超时，请重试");
-        pushSystem("认证超时：可能是移动端密钥生成较慢或网络不稳定，请再次点击连接。");
+        setStatusHint("连接超时，请重试");
+        pushSystem("认证超时，请检查网络后重试");
         disconnect();
       }
     }, 20000);
@@ -526,19 +682,19 @@ export default function App() {
         authTimeoutRef.current = 0;
       }
       setStatus("ready");
-      setStatusHint("连接就绪，可以开始聊天");
-      pushSystem("认证成功");
+      setStatusHint("已连接，可以开始聊天");
+      pushSystem("连接准备完成");
       return;
     }
 
     if (message.type === "broadcast") {
-      pushIncoming(message.key || "匿名用户", String(message.data ?? ""));
+      pushIncoming(message.key || "匿名用户", String(message.data ?? ""), "", CHANNEL_BROADCAST);
       return;
     }
 
     if (message.type === "forward") {
-      const sender = message.key ? `私聊 ${summarizeKey(message.key)}` : "私聊";
-      pushIncoming(sender, String(message.data ?? ""));
+      const sender = "私聊消息";
+      pushIncoming(sender, String(message.data ?? ""), "", CHANNEL_PRIVATE);
       return;
     }
 
@@ -560,9 +716,14 @@ export default function App() {
     if (!identity || !serverPublicKey) return;
 
     const text = draft.trim();
-    const key = targetKey.trim();
+    const key = directMode ? targetKey.trim() : "";
+    if (directMode && !key) {
+      setStatusHint("请先填写目标公钥，再发送私聊消息");
+      return;
+    }
     const type = key ? "forward" : "broadcast";
-    const subtitle = key ? `目标 ${summarizeKey(key)}` : "广播";
+    const channel = key ? CHANNEL_PRIVATE : CHANNEL_BROADCAST;
+    const subtitle = key ? `私聊 ${summarizeKey(key)}` : "";
 
     setSending(true);
     try {
@@ -584,7 +745,7 @@ export default function App() {
 
       const cipher = await rsaEncryptChunked(serverPublicKey, JSON.stringify(envelope));
       ws.send(cipher);
-      pushOutgoing(text, subtitle);
+      pushOutgoing(text, subtitle, channel);
       setDraft("");
     } catch (error) {
       pushSystem(`发送失败：${error.message}`);
@@ -620,13 +781,43 @@ export default function App() {
     }
   }
 
+  function onMessageListScroll(event) {
+    const el = event.currentTarget;
+    const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    stickToBottomRef.current = distanceToBottom <= AUTO_SCROLL_THRESHOLD;
+  }
+
+  function saveCurrentServerUrl() {
+    const normalizedUrl = normalizeServerUrl(serverUrl);
+    if (!normalizedUrl) {
+      setStatusHint("请输入有效的服务器地址");
+      return;
+    }
+    setServerUrl(normalizedUrl);
+    setServerUrls((prev) => appendServerUrl(prev, normalizedUrl));
+    setStatusHint("服务器地址已保存");
+  }
+
+  function removeCurrentServerUrl() {
+    const normalizedCurrent = normalizeServerUrl(serverUrl);
+    const filtered = serverUrls.filter((item) => item !== normalizedCurrent);
+    if (filtered.length === 0) {
+      const fallback = getDefaultServerUrl();
+      setServerUrls([fallback]);
+      setServerUrl(fallback);
+      setStatusHint("已恢复默认服务器地址");
+      return;
+    }
+    setServerUrls(filtered);
+    setServerUrl(filtered[0]);
+    setStatusHint("已移除当前服务器地址");
+  }
+
   return (
     <div className="page">
       <header className="hero">
         <div>
           <p className="hero-tag">OnlineMsg Chat</p>
-          <h1>简洁、安全的在线消息界面</h1>
-          <p className="hero-sub">默认自动处理连接和安全流程，你只需要聊天。</p>
         </div>
         <div className={`status-chip ${statusClass}`}>
           <span className="dot" />
@@ -634,34 +825,90 @@ export default function App() {
         </div>
       </header>
 
-      <main className="layout">
+      <main className={`layout mobile-${activeMobileTab}`}>
         <section className="chat-card">
           <div className="chat-head">
-            <div>
-              <strong>消息面板</strong>
-              <p>{statusHint}</p>
+            <div className="chat-peer">
+              <span className="chat-avatar">OM</span>
+              <div>
+                <strong>在线会话</strong>
+                <p>{statusHint}</p>
+              </div>
             </div>
             <div className="head-actions">
               {canConnect ? (
-                <button className="btn btn-main" onClick={connect}>
+                <button className="btn btn-main desktop-only" onClick={connect}>
                   连接
                 </button>
               ) : (
-                <button className="btn btn-ghost" onClick={disconnect}>
+                <button className="btn btn-ghost desktop-only" onClick={disconnect}>
                   断开
                 </button>
               )}
-              <button className="btn btn-ghost" onClick={() => setMessages([])}>
+              <button className="btn btn-ghost desktop-only" onClick={() => setMessages([])}>
                 清空
               </button>
             </div>
           </div>
 
-          <div className="message-list">
-            {messages.length === 0 ? (
-              <div className="empty-tip">连接后即可开始聊天，支持广播和指定目标私聊。</div>
+          <div className="chat-mode-strip mobile-only">
+            <div className="chat-mode-left">
+              <span className="mode-strip-icon" aria-hidden="true">
+                OM
+              </span>
+              <button
+                className={`btn btn-mode ${!directMode ? "active" : ""}`}
+                onClick={() => setDirectMode(false)}
+                type="button"
+              >
+                广播
+              </button>
+              <button
+                className={`btn btn-mode ${directMode ? "active" : ""}`}
+                onClick={() => setDirectMode(true)}
+                type="button"
+              >
+                私聊
+              </button>
+            </div>
+            <div className="chat-mode-right">
+              <button
+                className={`btn mobile-conn-btn ${statusClass} ${canConnect ? "actionable" : ""}`}
+                type="button"
+                onClick={canConnect ? connect : undefined}
+                disabled={!canConnect}
+                aria-label={mobileConnectText}
+                title={mobileConnectText}
+              >
+                <span className="dot" />
+                <span>{mobileConnectText}</span>
+              </button>
+            </div>
+          </div>
+
+          {directMode ? (
+            <div className="chat-target-box mobile-only">
+              <textarea
+                value={targetKey}
+                onChange={(event) => setTargetKey(event.target.value)}
+                onKeyDown={onTargetKeyDown}
+                onCompositionStart={() => {
+                  targetComposingRef.current = true;
+                }}
+                onCompositionEnd={() => {
+                  targetComposingRef.current = false;
+                }}
+                rows={2}
+                placeholder="私聊模式：粘贴目标公钥"
+              />
+            </div>
+          ) : null}
+
+          <div className="message-list" ref={messageListRef} onScroll={onMessageListScroll}>
+            {visibleMessages.length === 0 ? (
+              <div className="empty-tip">连接后即可聊天。默认广播，切换到私聊后可填写目标公钥。</div>
             ) : (
-              messages.map((item) => (
+              visibleMessages.map((item) => (
                 <article key={item.id} className={`msg ${item.role}`}>
                   {item.role === "system" ? (
                     <>
@@ -693,26 +940,35 @@ export default function App() {
           </div>
 
           <div className="composer">
-            <textarea
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              onKeyDown={onDraftKeyDown}
-              onCompositionStart={() => {
-                draftComposingRef.current = true;
-              }}
-              onCompositionEnd={() => {
-                draftComposingRef.current = false;
-              }}
-              placeholder="输入消息，回车发送，Shift+回车换行"
-              rows={3}
-            />
-            <button className="btn btn-main" onClick={sendMessage} disabled={!canSend}>
+            <div className="composer-input-wrap">
+              <textarea
+                value={draft}
+                onChange={(event) => setDraft(event.target.value)}
+                onKeyDown={onDraftKeyDown}
+                onCompositionStart={() => {
+                  draftComposingRef.current = true;
+                }}
+                onCompositionEnd={() => {
+                  draftComposingRef.current = false;
+                }}
+                placeholder="输入消息"
+                rows={1}
+              />
+            </div>
+            <button className="btn btn-main btn-send" onClick={sendMessage} disabled={!canSend}>
               {sending ? "发送中..." : "发送"}
             </button>
           </div>
         </section>
 
         <aside className="side-card">
+          <div className="settings-head mobile-only">
+            <strong>设置</strong>
+            <button className="btn btn-ghost btn-sm" type="button" onClick={() => setActiveMobileTab("chat")}>
+              返回聊天
+            </button>
+          </div>
+
           <div className="field">
             <label>显示名称</label>
             <input
@@ -724,67 +980,157 @@ export default function App() {
           </div>
 
           <div className="field">
-            <label>我的公钥</label>
-            <div className="inline-actions">
-              <button className="btn btn-ghost btn-sm" onClick={revealMyPublicKey} disabled={publicKeyBusy}>
-                {publicKeyBusy ? "生成中..." : "查看/生成"}
-              </button>
-              <button className="btn btn-ghost btn-sm" onClick={copyMyPublicKey} disabled={!myPublicKey}>
-                一键复制
-              </button>
-              {copyNotice ? <span className="copy-notice">{copyNotice}</span> : null}
-            </div>
-            <textarea
-              value={myPublicKey}
-              readOnly
-              rows={4}
-              className="readonly-text"
-              placeholder="点击“查看/生成”显示你的公钥"
-            />
+            <label>连接控制</label>
+            <button className="btn btn-ghost btn-sm btn-disconnect" type="button" onClick={disconnect} disabled={!canDisconnect}>
+              主动断开连接
+            </button>
           </div>
 
           <div className="field">
-            <label>目标公钥（可选，留空即广播）</label>
-            <textarea
-              value={targetKey}
-              onChange={(event) => setTargetKey(event.target.value)}
-              onKeyDown={onTargetKeyDown}
-              onCompositionStart={() => {
-                targetComposingRef.current = true;
-              }}
-              onCompositionEnd={() => {
-                targetComposingRef.current = false;
-              }}
-              rows={3}
-              placeholder="仅在需要私聊时填写目标公钥"
-            />
+            <label>发送方式</label>
+            <div className="mode-switch">
+              <button
+                className={`btn btn-mode ${!directMode ? "active" : ""}`}
+                onClick={() => setDirectMode(false)}
+                type="button"
+              >
+                广播
+              </button>
+              <button
+                className={`btn btn-mode ${directMode ? "active" : ""}`}
+                onClick={() => setDirectMode(true)}
+                type="button"
+              >
+                私聊
+              </button>
+            </div>
           </div>
 
+          {directMode ? (
+            <div className="field">
+              <label>目标公钥</label>
+              <textarea
+                value={targetKey}
+                onChange={(event) => setTargetKey(event.target.value)}
+                onKeyDown={onTargetKeyDown}
+                onCompositionStart={() => {
+                  targetComposingRef.current = true;
+                }}
+                onCompositionEnd={() => {
+                  targetComposingRef.current = false;
+                }}
+                rows={3}
+                placeholder="粘贴对方公钥后发送"
+              />
+            </div>
+          ) : null}
+
           <details className="advanced" open={advancedOpen} onToggle={(e) => setAdvancedOpen(e.target.open)}>
-            <summary>高级连接设置（可手动指定服务器）</summary>
+            <summary>高级连接设置</summary>
+            <div className="field">
+              <label>已保存服务器</label>
+              <div className="server-list-row">
+                <select value={serverUrl} onChange={(event) => setServerUrl(event.target.value)}>
+                  {serverUrls.map((item) => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
             <div className="field">
               <label>服务器地址</label>
               <input
                 type="text"
                 value={serverUrl}
                 onChange={(event) => setServerUrl(event.target.value)}
-                placeholder="ws://example.com:13173/"
+                placeholder="wss://example.com/msgws/"
+              />
+              <div className="server-actions">
+                <button className="btn btn-ghost btn-sm" type="button" onClick={saveCurrentServerUrl}>
+                  保存地址
+                </button>
+                <button className="btn btn-ghost btn-sm" type="button" onClick={removeCurrentServerUrl}>
+                  删除当前
+                </button>
+              </div>
+            </div>
+          </details>
+
+          <details className="advanced">
+            <summary>身份与安全</summary>
+            <div className="field">
+              <label>我的公钥</label>
+              <div className="inline-actions">
+                <button className="btn btn-ghost btn-sm" onClick={revealMyPublicKey} disabled={publicKeyBusy}>
+                  {publicKeyBusy ? "生成中..." : "查看/生成"}
+                </button>
+                <button className="btn btn-ghost btn-sm" onClick={copyMyPublicKey} disabled={!myPublicKey}>
+                  一键复制
+                </button>
+                {copyNotice ? <span className="copy-notice">{copyNotice}</span> : null}
+              </div>
+              <textarea
+                value={myPublicKey}
+                readOnly
+                rows={4}
+                className="readonly-text"
+                placeholder="点击“查看/生成”显示你的公钥"
               />
             </div>
           </details>
 
-          <div className="meta">
-            <p>
-              <span>当前状态</span>
-              <strong>{STATUS_TEXT[status]}</strong>
-            </p>
-            <p>
-              <span>证书指纹</span>
-              <strong>{certFingerprint ? summarizeKey(certFingerprint) : "未获取"}</strong>
-            </p>
-          </div>
+          <details className="advanced">
+            <summary>诊断信息</summary>
+            <div className="meta">
+              <p>
+                <span>连接提示</span>
+                <strong>{statusHint}</strong>
+              </p>
+              <p>
+                <span>当前状态</span>
+                <strong>{STATUS_TEXT[status]}</strong>
+              </p>
+              <p>
+                <span>证书指纹</span>
+                <strong>{certFingerprint ? summarizeKey(certFingerprint) : "未获取"}</strong>
+              </p>
+              <label className="toggle-row">
+                <input
+                  type="checkbox"
+                  checked={showSystemMessages}
+                  onChange={(event) => setShowSystemMessages(event.target.checked)}
+                />
+                <span>显示系统消息</span>
+              </label>
+            </div>
+          </details>
         </aside>
       </main>
+
+      <nav className="mobile-nav">
+        <button
+          className={`mobile-nav-btn ${activeMobileTab === "chat" ? "active" : ""}`}
+          type="button"
+          onClick={() => setActiveMobileTab("chat")}
+        >
+          <svg viewBox="0 0 24 24" className="mobile-nav-icon" aria-hidden="true">
+            <path d="M5 6h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H10l-5 4v-4H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z" />
+          </svg>
+          <span className="mobile-nav-label">聊天</span>
+        </button>
+        <button
+          className={`mobile-nav-btn ${activeMobileTab === "settings" ? "active" : ""}`}
+          type="button"
+          onClick={() => setActiveMobileTab("settings")}
+        >
+          <svg viewBox="0 0 24 24" className="mobile-nav-icon" aria-hidden="true">
+            <path d="M4 7h16M4 12h16M4 17h16" />
+          </svg>
+          <span className="mobile-nav-label">设置</span>
+        </button>
+      </nav>
     </div>
   );
 }
