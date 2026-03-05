@@ -3,5 +3,6 @@ obj/
 todolist.md
 web-client/node_modules/
 web-client/dist/
+web-client/.vite
 deploy/certs/
 deploy/keys/
