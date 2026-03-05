@@ -83,7 +83,10 @@ dependencies {
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
 }
 
-val debugApkExportDir = "/Users/<user>/Docker/webdav/share/public/apk-release"
+val debugApkExportDir: String = providers.gradleProperty("debugApkExportDir")
+    .orElse(providers.environmentVariable("DEBUG_APK_EXPORT_DIR"))
+    .orElse(layout.buildDirectory.dir("exports/apk-debug").map { it.asFile.absolutePath })
+    .get()
 val debugApkExportName = "onlinemsgclient-debug.apk"
 
 val exportDebugApk by tasks.registering(Copy::class) {

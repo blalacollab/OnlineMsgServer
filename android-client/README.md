@@ -2,7 +2,7 @@
 
 本目录是针对当前 `OnlineMsgServer` 协议实现的 Android 客户端。
 
-## 已实现能力
+## 主要能力
 
 - Kotlin + Jetpack Compose + Material3
 - 与当前服务端协议兼容：
@@ -34,7 +34,14 @@
 2. 等待 Gradle Sync 完成。
 3. 运行 `app`。
 
-## 联调建议
+命令行构建示例：
+
+```bash
+cd android-client
+./gradlew assembleDebug
+```
+
+## 联调地址建议
 
 - 模拟器建议地址：`ws://10.0.2.2:13173/`
 - 真机建议地址：`ws://<你的局域网IP>:13173/`
@@ -48,6 +55,14 @@
   - `broadcast|forward\n{key}\n{payload}\n{timestamp}\n{nonce}`
 - `forward` 的 `key` 必须是目标公钥。
 - `broadcast` 的 `key` 为空字符串。
+
+## 构建产物导出（可选）
+
+- `assembleDebug` 结束后会触发 `exportDebugApk` 任务，把 `app-debug.apk` 复制到导出目录。
+- 默认导出目录：`android-client/app/build/exports/apk-debug`
+- 可通过以下方式覆盖导出目录：
+  - Gradle 属性：`-PdebugApkExportDir=/your/path`
+  - 环境变量：`DEBUG_APK_EXPORT_DIR=/your/path`
 
 ## 已知限制
 
