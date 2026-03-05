@@ -6,3 +6,7 @@ web-client/dist/
 web-client/.vite
 deploy/certs/
 deploy/keys/
+
+# macOS metadata
+.DS_Store
+**/.DS_Store
