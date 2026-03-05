@@ -6,6 +6,7 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.ByteString
+import java.util.concurrent.TimeUnit
 
 class OnlineMsgSocketClient {
 
@@ -19,6 +20,7 @@ class OnlineMsgSocketClient {
 
     private val client = OkHttpClient.Builder()
         .retryOnConnectionFailure(true)
+        .pingInterval(15, TimeUnit.SECONDS)
         .build()
 
     @Volatile

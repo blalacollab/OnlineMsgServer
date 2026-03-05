@@ -82,3 +82,19 @@ dependencies {
     androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
 }
+
+val debugApkExportDir = "/Users/<user>/Docker/webdav/share/public/apk-release"
+val debugApkExportName = "onlinemsgclient-debug.apk"
+
+val exportDebugApk by tasks.registering(Copy::class) {
+    from(layout.buildDirectory.file("outputs/apk/debug/app-debug.apk"))
+    into(debugApkExportDir)
+    rename { debugApkExportName }
+    doFirst {
+        file(debugApkExportDir).mkdirs()
+    }
+}
+
+tasks.matching { it.name == "assembleDebug" }.configureEach {
+    finalizedBy(exportDebugApk)
+}

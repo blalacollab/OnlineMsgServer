@@ -20,7 +20,8 @@ data class UserPreferences(
     val serverUrls: List<String>,
     val currentServerUrl: String,
     val showSystemMessages: Boolean,
-    val directMode: Boolean
+    val directMode: Boolean,
+    val shouldAutoReconnect: Boolean
 )
 
 class UserPreferencesRepository(
@@ -42,7 +43,8 @@ class UserPreferencesRepository(
             serverUrls = if (serverUrls.isEmpty()) listOf(ServerUrlFormatter.defaultServerUrl) else serverUrls,
             currentServerUrl = currentServer,
             showSystemMessages = prefs[KEY_SHOW_SYSTEM_MESSAGES] ?: false,
-            directMode = prefs[KEY_DIRECT_MODE] ?: false
+            directMode = prefs[KEY_DIRECT_MODE] ?: false,
+            shouldAutoReconnect = prefs[KEY_SHOULD_AUTO_RECONNECT] ?: false
         )
     }
 
@@ -101,6 +103,12 @@ class UserPreferencesRepository(
         }
     }
 
+    suspend fun setShouldAutoReconnect(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_SHOULD_AUTO_RECONNECT] = enabled
+        }
+    }
+
     private fun decodeServerUrls(raw: String?): List<String> {
         if (raw.isNullOrBlank()) return listOf(ServerUrlFormatter.defaultServerUrl)
         return runCatching {
@@ -119,5 +127,6 @@ class UserPreferencesRepository(
         val KEY_CURRENT_SERVER_URL: Preferences.Key<String> = stringPreferencesKey("current_server_url")
         val KEY_SHOW_SYSTEM_MESSAGES: Preferences.Key<Boolean> = booleanPreferencesKey("show_system_messages")
         val KEY_DIRECT_MODE: Preferences.Key<Boolean> = booleanPreferencesKey("direct_mode")
+        val KEY_SHOULD_AUTO_RECONNECT: Preferences.Key<Boolean> = booleanPreferencesKey("should_auto_reconnect")
     }
 }

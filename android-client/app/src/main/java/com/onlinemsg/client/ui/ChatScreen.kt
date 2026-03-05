@@ -3,6 +3,7 @@ package com.onlinemsg.client.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.imePadding
@@ -14,7 +15,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -371,48 +374,131 @@ private fun MessageItem(
     message: UiMessage,
     onCopy: () -> Unit
 ) {
-    val container = when (message.role) {
-        MessageRole.SYSTEM -> MaterialTheme.colorScheme.secondaryContainer
-        MessageRole.INCOMING -> MaterialTheme.colorScheme.surface
-        MessageRole.OUTGOING -> MaterialTheme.colorScheme.primaryContainer
-    }
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        val maxBubbleWidth = if (message.role == MessageRole.SYSTEM) {
+            maxWidth * 0.9f
+        } else {
+            maxWidth * 0.82f
+        }
 
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = container)
-    ) {
-        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            if (message.role != MessageRole.SYSTEM) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+        if (message.role == MessageRole.SYSTEM) {
+            Card(
+                modifier = Modifier
+                    .widthIn(max = maxBubbleWidth)
+                    .align(Alignment.Center),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer
+                )
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     Text(
-                        text = message.sender,
-                        style = MaterialTheme.typography.labelLarge
+                        text = message.content,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
                     )
-                    if (message.subtitle.isNotBlank()) {
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = message.subtitle,
-                            style = MaterialTheme.typography.labelSmall,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                    Spacer(modifier = Modifier.weight(1f))
                     Text(
                         text = formatTime(message.timestampMillis),
-                        style = MaterialTheme.typography.labelSmall
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
                     )
                 }
             }
+            return@BoxWithConstraints
+        }
 
-            Text(
-                text = message.content,
-                style = MaterialTheme.typography.bodyMedium
+        val isOutgoing = message.role == MessageRole.OUTGOING
+        val bubbleColor = if (isOutgoing) {
+            MaterialTheme.colorScheme.primaryContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceContainer
+        }
+        val bubbleTextColor = if (isOutgoing) {
+            MaterialTheme.colorScheme.onPrimaryContainer
+        } else {
+            MaterialTheme.colorScheme.onSurface
+        }
+        val bubbleShape = if (isOutgoing) {
+            RoundedCornerShape(
+                topStart = 18.dp,
+                topEnd = 6.dp,
+                bottomEnd = 18.dp,
+                bottomStart = 18.dp
             )
+        } else {
+            RoundedCornerShape(
+                topStart = 6.dp,
+                topEnd = 18.dp,
+                bottomEnd = 18.dp,
+                bottomStart = 18.dp
+            )
+        }
 
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                IconButton(onClick = onCopy) {
-                    Icon(Icons.Rounded.ContentCopy, contentDescription = "复制")
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = if (isOutgoing) Arrangement.End else Arrangement.Start
+        ) {
+            Card(
+                modifier = Modifier.widthIn(max = maxBubbleWidth),
+                shape = bubbleShape,
+                colors = CardDefaults.cardColors(containerColor = bubbleColor)
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    if (!isOutgoing) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = message.sender,
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            if (message.subtitle.isNotBlank()) {
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = message.subtitle,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = bubbleTextColor.copy(alpha = 0.75f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+
+                    Text(
+                        text = message.content,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = bubbleTextColor
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Spacer(modifier = Modifier.weight(1f))
+                        Text(
+                            text = formatTime(message.timestampMillis),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = bubbleTextColor.copy(alpha = 0.7f)
+                        )
+                        IconButton(
+                            onClick = onCopy,
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.ContentCopy,
+                                contentDescription = "复制",
+                                tint = bubbleTextColor.copy(alpha = 0.7f),
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                    }
                 }
             }
         }
