@@ -4,6 +4,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -99,7 +102,7 @@ fun OnlineMsgApp(
                 )
             },
             bottomBar = {
-                NavigationBar {
+                NavigationBar(modifier = Modifier.navigationBarsPadding()) {
                     NavigationBarItem(
                         selected = tab == MainTab.CHAT,
                         onClick = { tab = MainTab.CHAT },
@@ -119,7 +122,9 @@ fun OnlineMsgApp(
             when (tab) {
                 MainTab.CHAT -> {
                     ChatTab(
-                        modifier = Modifier.padding(innerPadding),
+                        modifier = Modifier
+                            .padding(innerPadding)
+                            .consumeWindowInsets(innerPadding),
                         state = state,
                         onToggleDirectMode = viewModel::toggleDirectMode,
                         onTargetKeyChange = viewModel::updateTargetKey,
@@ -137,7 +142,9 @@ fun OnlineMsgApp(
 
                 MainTab.SETTINGS -> {
                     SettingsTab(
-                        modifier = Modifier.padding(innerPadding),
+                        modifier = Modifier
+                            .padding(innerPadding)
+                            .consumeWindowInsets(innerPadding),
                         state = state,
                         onDisplayNameChange = viewModel::updateDisplayName,
                         onServerUrlChange = viewModel::updateServerUrl,
@@ -217,6 +224,7 @@ private fun ChatTab(
     Column(
         modifier = modifier
             .fillMaxSize()
+            .imePadding()
             .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
         ConnectionRow(

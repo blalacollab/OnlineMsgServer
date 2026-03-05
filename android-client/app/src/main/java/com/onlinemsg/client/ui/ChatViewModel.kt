@@ -60,6 +60,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private var authTimeoutJob: Job? = null
     private var reconnectJob: Job? = null
     private var reconnectAttempt: Int = 0
+    private val systemMessageExpiryJobs: MutableMap<String, Job> = mutableMapOf()
 
     private val socketListener = object : OnlineMsgSocketClient.Listener {
         override fun onOpen() {
@@ -182,6 +183,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun clearMessages() {
+        cancelSystemMessageExpiryJobs()
         _uiState.update { it.copy(messages = emptyList()) }
     }
 
@@ -629,15 +631,15 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun addSystemMessage(content: String) {
-        appendMessage(
-            UiMessage(
-                role = MessageRole.SYSTEM,
-                sender = "系统",
-                subtitle = "",
-                content = content,
-                channel = MessageChannel.BROADCAST
-            )
+        val message = UiMessage(
+            role = MessageRole.SYSTEM,
+            sender = "系统",
+            subtitle = "",
+            content = content,
+            channel = MessageChannel.BROADCAST
         )
+        appendMessage(message)
+        scheduleSystemMessageExpiry(message.id)
     }
 
     private fun addIncomingMessage(
@@ -676,6 +678,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private fun appendMessage(message: UiMessage) {
         _uiState.update { current ->
             val next = (current.messages + message).takeLast(MAX_MESSAGES)
+            val aliveIds = next.asSequence().map { it.id }.toSet()
+            val removedIds = systemMessageExpiryJobs.keys.filterNot { it in aliveIds }
+            removedIds.forEach { id ->
+                systemMessageExpiryJobs.remove(id)?.cancel()
+            }
             current.copy(messages = next)
         }
     }
@@ -747,6 +754,23 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         reconnectJob = null
     }
 
+    private fun scheduleSystemMessageExpiry(messageId: String) {
+        systemMessageExpiryJobs.remove(messageId)?.cancel()
+        systemMessageExpiryJobs[messageId] = viewModelScope.launch {
+            delay(SYSTEM_MESSAGE_TTL_MS)
+            _uiState.update { current ->
+                val filtered = current.messages.filterNot { it.id == messageId }
+                current.copy(messages = filtered)
+            }
+            systemMessageExpiryJobs.remove(messageId)
+        }
+    }
+
+    private fun cancelSystemMessageExpiryJobs() {
+        systemMessageExpiryJobs.values.forEach { it.cancel() }
+        systemMessageExpiryJobs.clear()
+    }
+
     private fun startHelloTimeout() {
         cancelHelloTimeout()
         helloTimeoutJob = viewModelScope.launch {
@@ -797,6 +821,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         super.onCleared()
+        cancelSystemMessageExpiryJobs()
         cancelReconnect()
         cancelHelloTimeout()
         cancelAuthTimeout()
@@ -808,5 +833,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         const val AUTH_TIMEOUT_MS = 20_000L
         const val MAX_MESSAGES = 500
         const val MAX_RECONNECT_ATTEMPTS = 5
+        const val SYSTEM_MESSAGE_TTL_MS = 1_000L
     }
 }
