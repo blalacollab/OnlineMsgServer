@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -101,7 +102,11 @@ fun OnlineMsgApp(
                         ConnectionStatus.READY -> MaterialTheme.colorScheme.primary
                         ConnectionStatus.ERROR -> MaterialTheme.colorScheme.error
                         else -> MaterialTheme.colorScheme.secondary
-                    }
+                    },
+                    canConnect = state.canConnect,
+                    canDisconnect = state.canDisconnect,
+                    onConnect = viewModel::connect,
+                    onDisconnect = viewModel::disconnect
                 )
             },
             bottomBar = {
@@ -133,9 +138,6 @@ fun OnlineMsgApp(
                         onTargetKeyChange = viewModel::updateTargetKey,
                         onDraftChange = viewModel::updateDraft,
                         onSend = viewModel::sendMessage,
-                        onConnect = viewModel::connect,
-                        onDisconnect = viewModel::disconnect,
-                        onClearMessages = viewModel::clearMessages,
                         onCopyMessage = { content ->
                             clipboard.setText(AnnotatedString(content))
                             viewModel.onMessageCopied()
@@ -162,8 +164,6 @@ fun OnlineMsgApp(
                                 viewModel.onMessageCopied()
                             }
                         },
-                        onConnect = viewModel::connect,
-                        onDisconnect = viewModel::disconnect,
                         onClearMessages = viewModel::clearMessages
                     )
                 }
@@ -176,8 +176,13 @@ fun OnlineMsgApp(
 @Composable
 private fun AppTopBar(
     statusText: String,
-    statusColor: Color
+    statusColor: Color,
+    canConnect: Boolean,
+    canDisconnect: Boolean,
+    onConnect: () -> Unit,
+    onDisconnect: () -> Unit
 ) {
+    val enabled = canConnect || canDisconnect
     TopAppBar(
         title = {
             Text(
@@ -187,7 +192,13 @@ private fun AppTopBar(
         },
         actions = {
             AssistChip(
-                onClick = {},
+                onClick = {
+                    when {
+                        canDisconnect -> onDisconnect()
+                        canConnect -> onConnect()
+                    }
+                },
+                enabled = enabled,
                 label = { Text(statusText) },
                 leadingIcon = {
                     Box(
@@ -211,9 +222,6 @@ private fun ChatTab(
     onTargetKeyChange: (String) -> Unit,
     onDraftChange: (String) -> Unit,
     onSend: () -> Unit,
-    onConnect: () -> Unit,
-    onDisconnect: () -> Unit,
-    onClearMessages: () -> Unit,
     onCopyMessage: (String) -> Unit
 ) {
     val listState = rememberLazyListState()
@@ -230,17 +238,6 @@ private fun ChatTab(
             .imePadding()
             .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
-        ConnectionRow(
-            statusHint = state.statusHint,
-            canConnect = state.canConnect,
-            canDisconnect = state.canDisconnect,
-            onConnect = onConnect,
-            onDisconnect = onDisconnect,
-            onClearMessages = onClearMessages
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             FilterChip(
                 selected = !state.directMode,
@@ -253,6 +250,13 @@ private fun ChatTab(
                 label = { Text("私聊") }
             )
         }
+
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = state.statusHint,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
 
         if (state.directMode) {
             Spacer(modifier = Modifier.height(8.dp))
@@ -326,44 +330,6 @@ private fun ChatTab(
                 Icon(Icons.AutoMirrored.Rounded.Send, contentDescription = "发送")
                 Spacer(Modifier.width(6.dp))
                 Text(if (state.sending) "发送中" else "发送")
-            }
-        }
-    }
-}
-
-@Composable
-private fun ConnectionRow(
-    statusHint: String,
-    canConnect: Boolean,
-    canDisconnect: Boolean,
-    onConnect: () -> Unit,
-    onDisconnect: () -> Unit,
-    onClearMessages: () -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-    ) {
-        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(
-                text = "在线会话",
-                style = MaterialTheme.typography.titleMedium
-            )
-            Text(
-                text = statusHint,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onConnect, enabled = canConnect) {
-                    Text("连接")
-                }
-                OutlinedButton(onClick = onDisconnect, enabled = canDisconnect) {
-                    Text("断开")
-                }
-                OutlinedButton(onClick = onClearMessages) {
-                    Text("清空")
-                }
             }
         }
     }
@@ -517,10 +483,15 @@ private fun SettingsTab(
     onToggleShowSystem: (Boolean) -> Unit,
     onRevealPublicKey: () -> Unit,
     onCopyPublicKey: () -> Unit,
-    onConnect: () -> Unit,
-    onDisconnect: () -> Unit,
     onClearMessages: () -> Unit
 ) {
+    val settingsCardModifier = Modifier.fillMaxWidth()
+    val settingsCardContentModifier = Modifier
+        .fillMaxWidth()
+        .heightIn(min = 112.dp)
+        .padding(horizontal = 14.dp, vertical = 12.dp)
+    val settingsCardContentSpacing = Arrangement.spacedBy(10.dp)
+
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
@@ -528,10 +499,10 @@ private fun SettingsTab(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
-            Card {
+            Card(modifier = settingsCardModifier) {
                 Column(
-                    modifier = Modifier.padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    modifier = settingsCardContentModifier,
+                    verticalArrangement = settingsCardContentSpacing
                 ) {
                     Text("个人设置", style = MaterialTheme.typography.titleMedium)
                     OutlinedTextField(
@@ -542,26 +513,29 @@ private fun SettingsTab(
                         supportingText = { Text("最长 64 字符") },
                         maxLines = 1
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = onConnect, enabled = state.canConnect) {
-                            Text("连接")
-                        }
-                        OutlinedButton(onClick = onDisconnect, enabled = state.canDisconnect) {
-                            Text("断开")
-                        }
-                        OutlinedButton(onClick = onClearMessages) {
-                            Text("清空消息")
-                        }
+                }
+            }
+        }
+
+        item {
+            Card(modifier = settingsCardModifier) {
+                Column(
+                    modifier = settingsCardContentModifier,
+                    verticalArrangement = settingsCardContentSpacing
+                ) {
+                    Text("聊天数据", style = MaterialTheme.typography.titleMedium)
+                    OutlinedButton(onClick = onClearMessages) {
+                        Text("清空聊天记录")
                     }
                 }
             }
         }
 
         item {
-            Card {
+            Card(modifier = settingsCardModifier) {
                 Column(
-                    modifier = Modifier.padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    modifier = settingsCardContentModifier,
+                    verticalArrangement = settingsCardContentSpacing
                 ) {
                     Text("服务器", style = MaterialTheme.typography.titleMedium)
                     OutlinedTextField(
@@ -603,10 +577,10 @@ private fun SettingsTab(
         }
 
         item {
-            Card {
+            Card(modifier = settingsCardModifier) {
                 Column(
-                    modifier = Modifier.padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    modifier = settingsCardContentModifier,
+                    verticalArrangement = settingsCardContentSpacing
                 ) {
                     Text("身份与安全", style = MaterialTheme.typography.titleMedium)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -637,10 +611,10 @@ private fun SettingsTab(
         }
 
         item {
-            Card {
+            Card(modifier = settingsCardModifier) {
                 Column(
-                    modifier = Modifier.padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    modifier = settingsCardContentModifier,
+                    verticalArrangement = settingsCardContentSpacing
                 ) {
                     Text("诊断", style = MaterialTheme.typography.titleMedium)
                     Text("连接提示：${state.statusHint}")
