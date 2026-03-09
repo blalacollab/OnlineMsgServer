@@ -39,6 +39,27 @@ data class SignedPayloadDto(
     @SerialName("signature") val signature: String
 )
 
+@Serializable
+data class AudioPayloadDto(
+    @SerialName("version") val version: Int = 1,
+    @SerialName("encoding") val encoding: String = "base64",
+    @SerialName("mimeType") val mimeType: String = "audio/mp4",
+    @SerialName("durationMillis") val durationMillis: Long,
+    @SerialName("data") val data: String
+)
+
+@Serializable
+data class AudioChunkPayloadDto(
+    @SerialName("version") val version: Int = 1,
+    @SerialName("encoding") val encoding: String = "base64",
+    @SerialName("mimeType") val mimeType: String = "audio/mp4",
+    @SerialName("messageId") val messageId: String,
+    @SerialName("index") val index: Int,
+    @SerialName("total") val total: Int,
+    @SerialName("durationMillis") val durationMillis: Long,
+    @SerialName("data") val data: String
+)
+
 fun JsonElement?.asPayloadText(): String {
     if (this == null || this is JsonNull) return ""
     return if (this is JsonPrimitive && this.isString) {

@@ -15,6 +15,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         requestNotificationPermissionIfNeeded()
+        requestAudioPermissionIfNeeded()
         enableEdgeToEdge()
         setContent {
             OnlineMsgApp()
@@ -35,7 +36,21 @@ class MainActivity : ComponentActivity() {
         )
     }
 
+    private fun requestAudioPermissionIfNeeded() {
+        val granted = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+        if (granted) return
+        ActivityCompat.requestPermissions(
+            this,
+            arrayOf(Manifest.permission.RECORD_AUDIO),
+            REQUEST_AUDIO_PERMISSION
+        )
+    }
+
     private companion object {
         const val REQUEST_NOTIFICATION_PERMISSION = 1002
+        const val REQUEST_AUDIO_PERMISSION = 1003
     }
 }

@@ -21,7 +21,10 @@ data class UserPreferences(
     val currentServerUrl: String,
     val showSystemMessages: Boolean,
     val directMode: Boolean,
-    val shouldAutoReconnect: Boolean
+    val shouldAutoReconnect: Boolean,
+    val themeId: String = "blue",
+    val useDynamicColor: Boolean = true,
+    val language: String = "zh" // 默认中文
 )
 
 class UserPreferencesRepository(
@@ -44,8 +47,29 @@ class UserPreferencesRepository(
             currentServerUrl = currentServer,
             showSystemMessages = prefs[KEY_SHOW_SYSTEM_MESSAGES] ?: false,
             directMode = prefs[KEY_DIRECT_MODE] ?: false,
-            shouldAutoReconnect = prefs[KEY_SHOULD_AUTO_RECONNECT] ?: false
+            shouldAutoReconnect = prefs[KEY_SHOULD_AUTO_RECONNECT] ?: false,
+            themeId = prefs[KEY_THEME_ID] ?: "blue",
+            useDynamicColor = prefs[KEY_USE_DYNAMIC_COLOR] ?: true,
+            language = prefs[KEY_LANGUAGE] ?: "zh"
         )
+    }
+
+    suspend fun setThemeId(themeId: String) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_THEME_ID] = themeId
+        }
+    }
+
+    suspend fun setLanguage(language: String) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_LANGUAGE] = language
+        }
+    }
+
+    suspend fun setUseDynamicColor(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_USE_DYNAMIC_COLOR] = enabled
+        }
     }
 
     suspend fun setDisplayName(name: String) {
@@ -128,5 +152,8 @@ class UserPreferencesRepository(
         val KEY_SHOW_SYSTEM_MESSAGES: Preferences.Key<Boolean> = booleanPreferencesKey("show_system_messages")
         val KEY_DIRECT_MODE: Preferences.Key<Boolean> = booleanPreferencesKey("direct_mode")
         val KEY_SHOULD_AUTO_RECONNECT: Preferences.Key<Boolean> = booleanPreferencesKey("should_auto_reconnect")
+        val KEY_THEME_ID: Preferences.Key<String> = stringPreferencesKey("theme_id")
+        val KEY_USE_DYNAMIC_COLOR: Preferences.Key<Boolean> = booleanPreferencesKey("use_dynamic_color")
+        val KEY_LANGUAGE: Preferences.Key<String> = stringPreferencesKey("language")
     }
 }

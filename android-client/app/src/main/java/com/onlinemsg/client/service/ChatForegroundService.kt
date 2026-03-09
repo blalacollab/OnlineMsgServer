@@ -1,5 +1,6 @@
 package com.onlinemsg.client.service
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -7,6 +8,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
@@ -14,6 +16,7 @@ import androidx.core.app.NotificationManagerCompat
 import com.onlinemsg.client.MainActivity
 import com.onlinemsg.client.ui.ChatSessionManager
 import com.onlinemsg.client.ui.ConnectionStatus
+import com.onlinemsg.client.util.LanguageManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -26,6 +29,10 @@ class ChatForegroundService : Service() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var statusJob: Job? = null
+
+    private fun t(key: String): String {
+        return LanguageManager.getString(key, ChatSessionManager.uiState.value.language)
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -69,10 +76,18 @@ class ChatForegroundService : Service() {
                 .map { it.status to it.statusHint }
                 .distinctUntilChanged()
                 .collect { (status, hint) ->
-                    NotificationManagerCompat.from(this@ChatForegroundService).notify(
-                        FOREGROUND_NOTIFICATION_ID,
-                        buildForegroundNotification(status, hint)
-                    )
+                    val canNotify = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                        checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+                    if (canNotify) {
+                        try {
+                            NotificationManagerCompat.from(this@ChatForegroundService).notify(
+                                FOREGROUND_NOTIFICATION_ID,
+                                buildForegroundNotification(status, hint)
+                            )
+                        } catch (_: SecurityException) {
+                            // Permission may be revoked while service is running.
+                        }
+                    }
                     if (status == ConnectionStatus.IDLE && !ChatSessionManager.shouldForegroundServiceRun()) {
                         stopForeground(STOP_FOREGROUND_REMOVE)
                         stopSelf()
@@ -103,22 +118,22 @@ class ChatForegroundService : Service() {
         )
 
         val title = when (status) {
-            ConnectionStatus.READY -> "OnlineMsg 已保持连接"
+            ConnectionStatus.READY -> t("service.foreground.title.ready")
             ConnectionStatus.CONNECTING,
             ConnectionStatus.HANDSHAKING,
-            ConnectionStatus.AUTHENTICATING -> "OnlineMsg 正在连接"
-            ConnectionStatus.ERROR -> "OnlineMsg 连接异常"
-            ConnectionStatus.IDLE -> "OnlineMsg 后台服务"
+            ConnectionStatus.AUTHENTICATING -> t("service.foreground.title.connecting")
+            ConnectionStatus.ERROR -> t("service.foreground.title.error")
+            ConnectionStatus.IDLE -> t("service.foreground.title.idle")
         }
 
         return NotificationCompat.Builder(this, FOREGROUND_CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_notify_sync)
             .setContentTitle(title)
-            .setContentText(hint.ifBlank { "后台保持连接中" })
+            .setContentText(hint.ifBlank { t("service.foreground.hint.default") })
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setContentIntent(openAppPendingIntent)
-            .addAction(0, "断开", stopPendingIntent)
+            .addAction(0, t("service.foreground.action.disconnect"), stopPendingIntent)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
     }
@@ -128,10 +143,10 @@ class ChatForegroundService : Service() {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val channel = NotificationChannel(
             FOREGROUND_CHANNEL_ID,
-            "OnlineMsg 后台连接",
+            t("service.foreground.channel.name"),
             NotificationManager.IMPORTANCE_LOW
         ).apply {
-            description = "保持 WebSocket 后台长连接"
+            description = t("service.foreground.channel.desc")
             setShowBadge(false)
         }
         manager.createNotificationChannel(channel)
