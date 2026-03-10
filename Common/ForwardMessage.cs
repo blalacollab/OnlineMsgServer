@@ -41,33 +41,29 @@ namespace OnlineMsgServer.Common
                         return;
                     }
 
-                    string fromPublicKey = UserService.GetUserPublicKeyByID(wsid)!;
-
-                    Message response = new()
+                    if (PeerNetworkService.TryHandlePeerRelayForward(wsid, forwardPublickKey, payload))
                     {
-                        Type = "forward",
-                        Data = payload.Payload,
-                        Key = fromPublicKey,
-                    };
-
-                    string jsonString = response.ToJsonString();
-                    string encryptString = RsaService.EncryptForClient(forwardPublickKey, jsonString);
-
-                    List<User> userList = UserService.GetUserListByPublicKey(forwardPublickKey);
-                    if (userList.Count == 0)
-                    {
-                        Log.Security("forward_target_offline_or_untrusted", $"wsid={wsid}");
                         return;
                     }
 
-                    foreach (IWebSocketSession session in Sessions.Sessions)
+                    string fromPublicKey = UserService.GetUserPublicKeyByID(wsid)!;
+                    if (!PeerNetworkService.TryMarkSeen(fromPublicKey, Type, forwardPublickKey, payload.Payload))
                     {
-                        if (userList.Exists(u => u.ID == session.ID))
-                        {
-                            session.Context.WebSocket.Send(encryptString);
-                            break;
-                        }
+                        return;
                     }
+
+                    bool delivered = PeerNetworkService.DeliverForwardToLocalClient(fromPublicKey, forwardPublickKey, payload.Payload);
+                    if (delivered)
+                    {
+                        return;
+                    }
+
+                    string? excludePeerPublicKey = UserService.IsPeerNodeSession(wsid)
+                        ? UserService.GetPeerPublicKeyBySessionId(wsid)
+                        : null;
+
+                    PeerNetworkService.RelayForwardMiss(forwardPublickKey, payload.Payload, excludePeerPublicKey);
+                    Log.Security("forward_target_offline_or_untrusted", $"wsid={wsid}");
                 }
                 catch (Exception ex)
                 {

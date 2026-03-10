@@ -132,6 +132,16 @@ namespace OnlineMsgServer.Core
             }
         }
 
+        public static string Sign(string src)
+        {
+            lock (_RsaLock)
+            {
+                byte[] srcBytes = Encoding.UTF8.GetBytes(src);
+                byte[] signatureBytes = _Rsa.SignData(srcBytes, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+                return Convert.ToBase64String(signatureBytes);
+            }
+        }
+
         public static bool IsPublicKeyValid(string publicKeyBase64)
         {
             lock (_PublicRsaLock)

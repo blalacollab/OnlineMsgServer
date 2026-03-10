@@ -48,6 +48,8 @@ namespace OnlineMsgServer
             //开启ws监听
             wssv.AddWebSocketService<WsService>("/");
             wssv.Start();
+            PeerNetworkService.Initialize(config, wssv.WebSocketServices["/"].Sessions);
+            PeerNetworkService.Start();
             Console.WriteLine("已开启ws监听, 端口: " + config.ListenPort);
 
             bool loopFlag = true;
@@ -70,6 +72,7 @@ namespace OnlineMsgServer
 #endif
                 await Task.Delay(5000);// 每5秒检查一次
             }
+            PeerNetworkService.Stop();
             wssv.Stop();
         }
 

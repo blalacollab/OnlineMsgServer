@@ -12,6 +12,11 @@ namespace OnlineMsgServer.Common
         /// </summary>
         public string? Name { get; set; }
 
+        /// <summary>
+        /// 是否为服务器节点伪装的 peer 用户
+        /// </summary>
+        public bool IsPeerNode { get; set; }
+
 
         /// <summary>
         /// 用户公钥 用于消息加密发送给用户

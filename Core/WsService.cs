@@ -12,6 +12,13 @@ namespace OnlineMsgServer.Core
         private static readonly object _abuseLock = new();
         private static readonly Dictionary<string, DateTime> _ipBlockedUntil = [];
 
+        public WsService()
+        {
+            // OkHttp/Android on some paths fails to surface a compressed first message.
+            // Keep the handshake/hello packet uncompressed for maximum client compatibility.
+            IgnoreExtensions = true;
+        }
+
         protected override async void OnMessage(MessageEventArgs e)
         {
             SecurityConfig config = SecurityRuntime.Config;

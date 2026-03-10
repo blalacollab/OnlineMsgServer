@@ -41,11 +41,14 @@ namespace OnlineMsgServer.Core
         /// <summary>
         /// 通过publickey返回用户列表
         /// </summary>
-        public static List<User> GetUserListByPublicKey(string publicKey)
+        public static List<User> GetUserListByPublicKey(string publicKey, bool includePeerNodes = true)
         {
             lock (_UserListLock)
             {
-                return _UserList.FindAll(u => u.PublicKey == publicKey && u.IsAuthenticated);
+                return _UserList.FindAll(u =>
+                    u.PublicKey == publicKey &&
+                    u.IsAuthenticated &&
+                    (includePeerNodes || !u.IsPeerNode));
             }
         }
 
@@ -53,7 +56,7 @@ namespace OnlineMsgServer.Core
         /// <summary>
         /// 通过wsid设置用户PublicKey
         /// </summary>
-        public static void UserLogin(string wsid, string publickey, string name)
+        public static void UserLogin(string wsid, string publickey, string name, bool isPeerNode = false)
         {
             lock (_UserListLock)
             {
@@ -62,6 +65,7 @@ namespace OnlineMsgServer.Core
                 {
                     user.PublicKey = publickey.Trim();
                     user.Name = name.Trim();
+                    user.IsPeerNode = isPeerNode;
                     user.IsAuthenticated = true;
                     user.PendingChallenge = null;
                     user.AuthenticatedAtUtc = DateTime.UtcNow;
@@ -128,6 +132,50 @@ namespace OnlineMsgServer.Core
             {
                 User? user = _UserList.Find(u => u.ID == wsid);
                 return user is { IsAuthenticated: true };
+            }
+        }
+
+        public static bool IsPeerNodeSession(string wsid)
+        {
+            lock (_UserListLock)
+            {
+                User? user = _UserList.Find(u => u.ID == wsid);
+                return user is { IsAuthenticated: true, IsPeerNode: true };
+            }
+        }
+
+        public static string? GetPeerPublicKeyBySessionId(string wsid)
+        {
+            lock (_UserListLock)
+            {
+                User? user = _UserList.Find(u => u.ID == wsid);
+                if (user is { IsAuthenticated: true, IsPeerNode: true })
+                {
+                    return user.PublicKey;
+                }
+
+                return null;
+            }
+        }
+
+        public static List<User> GetAuthenticatedUsers(bool includePeerNodes = true)
+        {
+            lock (_UserListLock)
+            {
+                return _UserList
+                    .Where(u => u.IsAuthenticated && (includePeerNodes || !u.IsPeerNode))
+                    .Select(u => new User(u.ID)
+                    {
+                        Name = u.Name,
+                        PublicKey = u.PublicKey,
+                        IsAuthenticated = u.IsAuthenticated,
+                        IsPeerNode = u.IsPeerNode,
+                        IpAddress = u.IpAddress,
+                        PendingChallenge = u.PendingChallenge,
+                        ChallengeIssuedAtUtc = u.ChallengeIssuedAtUtc,
+                        AuthenticatedAtUtc = u.AuthenticatedAtUtc
+                    })
+                    .ToList();
             }
         }
 

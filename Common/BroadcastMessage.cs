@@ -35,26 +35,20 @@ namespace OnlineMsgServer.Common
                         return;
                     }
 
-                    Message response = new()
+                    string senderPublicKey = UserService.GetUserPublicKeyByID(wsid)!;
+                    if (!PeerNetworkService.TryMarkSeen(senderPublicKey, Type, key, payload.Payload))
                     {
-                        Type = "broadcast",
-                        Data = payload.Payload,
-                        Key = UserService.GetUserNameByID(wsid),
-                    };
-
-                    foreach (IWebSocketSession session in Sessions.Sessions)
-                    {
-                        if (session.ID != wsid)//不用发给自己
-                        {
-                            string? publicKey = UserService.GetUserPublicKeyByID(session.ID);
-                            if (publicKey != null)
-                            {
-                                string jsonString = response.ToJsonString();
-                                string encryptString = RsaService.EncryptForClient(publicKey, jsonString);
-                                session.Context.WebSocket.Send(encryptString);
-                            }
-                        }
+                        return;
                     }
+
+                    string senderName = UserService.GetUserNameByID(wsid) ?? "anonymous";
+                    PeerNetworkService.DeliverBroadcastToLocalClients(senderName, payload.Payload, wsid);
+
+                    string? excludePeerPublicKey = UserService.IsPeerNodeSession(wsid)
+                        ? UserService.GetPeerPublicKeyBySessionId(wsid)
+                        : null;
+
+                    PeerNetworkService.RelayBroadcast(payload.Payload, excludePeerPublicKey);
                 }
                 catch (Exception ex)
                 {

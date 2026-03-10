@@ -81,7 +81,8 @@ namespace OnlineMsgServer.Common
                         return;
                     }
 
-                    UserService.UserLogin(wsid, payload.PublicKey, userName);
+                    bool isPeerNode = PeerNetworkService.IsPeerUserName(userName);
+                    UserService.UserLogin(wsid, payload.PublicKey, userName, isPeerNode);
                     Log.Security("auth_success", $"wsid={wsid} user={userName}");
 
                     Message ack = new()
