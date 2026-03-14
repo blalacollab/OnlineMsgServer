@@ -39,6 +39,8 @@
 cd <repo-root>
 ```
 
+当前仓库只保留服务端代码，不再包含 Web 或 Android 客户端。下面的 `ws://` / `wss://` 地址仅表示服务端监听地址，需要由你自己的客户端接入。
+
 ### 1. 本地测试：WS
 
 ```bash
@@ -50,6 +52,28 @@ bash deploy/deploy_test_ws.sh
 - 生成或复用协议私钥 `deploy/keys/server_rsa_pkcs8.b64`
 - 构建 Docker 镜像
 - 以 `REQUIRE_WSS=false` 启动服务
+
+这是最推荐的本地烟雾测试方式，因为它会顺手准备服务端协议私钥，避免容器“镜像能启动、进程却立即退出”的假失败。
+
+### 1.1 仅验证镜像是否能启动
+
+如果你只是想验证镜像构建和进程启动，不准备挂载真实协议私钥，可以临时允许内存私钥：
+
+```bash
+docker build -t onlinemsgserver:test .
+
+docker run -d --name onlinemsgserver-smoketest \
+  -p 13175:13173 \
+  -e REQUIRE_WSS=false \
+  -e ALLOW_EPHEMERAL_SERVER_KEY=true \
+  onlinemsgserver:test
+```
+
+注意：
+
+- 这只适合本地 smoke test，不适合长期运行
+- 如果既没有挂载 `SERVER_PRIVATE_KEY_PATH`，也没有设置 `ALLOW_EPHEMERAL_SERVER_KEY=true`，容器会在启动阶段直接退出
+- 测完后记得清理临时容器：`docker rm -f onlinemsgserver-smoketest`
 
 ### 2. 局域网测试：WSS
 
@@ -83,6 +107,13 @@ bash deploy/prepare_prod_release.sh
 - 运行时证书和协议私钥
 
 ## 手动 Docker 启动
+
+镜像本身不会内置服务端协议私钥，所以手动 `docker run` 时必须二选一：
+
+- 挂载真实私钥，并配置 `SERVER_PRIVATE_KEY_PATH` 或 `SERVER_PRIVATE_KEY_B64`
+- 仅用于本地测试时，显式设置 `ALLOW_EPHEMERAL_SERVER_KEY=true`
+
+如果这两个条件都没满足，容器会在初始化 RSA 阶段退出。
 
 ### 单节点：WS
 
@@ -273,7 +304,7 @@ peer 网络不引入新的客户端外层协议。节点之间也是普通登录
 
 - `SERVER_PRIVATE_KEY_B64`：协议私钥（PKCS8 base64）
 - `SERVER_PRIVATE_KEY_PATH`：协议私钥文件路径
-- `ALLOW_EPHEMERAL_SERVER_KEY`：未提供私钥时是否允许启动临时内存私钥，默认 `false`
+- `ALLOW_EPHEMERAL_SERVER_KEY`：未提供私钥时是否允许启动临时内存私钥，默认 `false`；只建议用于本地测试或一次性烟雾验证
 
 ### 安全限制
 
@@ -295,6 +326,16 @@ peer 网络不引入新的客户端外层协议。节点之间也是普通登录
 - `PEER_RECONNECT_SECONDS`：peer 断线重连间隔，默认 `5`
 
 ## 常见问题
+
+### Docker 镜像能 build，但 `docker run` 后容器立刻退出
+
+优先检查：
+
+- 是否挂载了服务端协议私钥
+- 是否配置了 `SERVER_PRIVATE_KEY_PATH` 或 `SERVER_PRIVATE_KEY_B64`
+- 如果只是本地烟雾测试，是否显式设置了 `ALLOW_EPHEMERAL_SERVER_KEY=true`
+
+这类退出通常不是 Dockerfile 问题，而是服务端在启动时拿不到协议私钥。
 
 ### `expected HTTP 101 but was 400`
 
