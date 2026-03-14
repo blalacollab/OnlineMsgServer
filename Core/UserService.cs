@@ -110,6 +110,34 @@ namespace OnlineMsgServer.Core
             }
         }
 
+        public static bool TryUpdateUserName(string wsid, string name, out string appliedName)
+        {
+            appliedName = "";
+            lock (_UserListLock)
+            {
+                User? user = _UserList.Find(u => u.ID == wsid);
+                if (user is not { IsAuthenticated: true })
+                {
+                    return false;
+                }
+
+                string normalized = name.Trim();
+                if (string.IsNullOrWhiteSpace(normalized))
+                {
+                    return false;
+                }
+
+                if (normalized.Length > 64)
+                {
+                    normalized = normalized[..64];
+                }
+
+                user.Name = normalized;
+                appliedName = normalized;
+                return true;
+            }
+        }
+
         /// <summary>
         /// 通过用户PublicKey获取wsid
         /// </summary>

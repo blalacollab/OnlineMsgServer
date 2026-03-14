@@ -1,34 +1,21 @@
 # OnlineMsgServer
 
-一个基于 WebSocket 的在线消息中转服务，使用 RSA 完成握手、公钥鉴权和业务包加密。
+一个仅保留服务端代码的 WebSocket 在线消息中转服务，使用 RSA 完成握手、公钥鉴权和业务包加密。
 
-当前版本除了单机广播/私聊，还支持“服务器伪装成普通用户”的 peer 互联模式：
+当前实现包含两层能力：
 
-- 客户端外层协议不变
-- 服务器之间通过普通 `publickey / forward / broadcast` 连接
-- 本地私聊未命中时，服务端可继续向 peer 盲转发
-- 广播可在 peer 节点之间扩散
-- 服务端内置短期 `seen-cache`，按 `hash(sender + type + key + payload)` 去重
+- 单节点消息中转：广播、按公钥私聊、鉴权、签名校验、防重放、限流
+- 可选 peer 中继：服务器作为“普通用户”互连，在不改客户端外层协议的前提下扩散广播，并在私聊 miss 时继续盲转发
 
-这套 peer 能力更接近“盲转发网络”，不是强一致的用户目录或联邦路由系统。
-
-## 功能概览
-
-- WebSocket 服务，支持 `ws://` 和 `wss://`
-- 明文首包下发服务端公钥与一次性 challenge
-- 客户端使用自己的 RSA 公钥 + 签名完成鉴权
-- 业务消息支持广播和按公钥私聊
-- 签名校验、防重放、限流、IP 封禁、消息大小限制
-- 可选 peer 网络：广播扩散、私聊 miss 后继续中继
-- Android / Web 客户端可直接复用现有协议
+这套 peer 机制是“尽力转发”的 overlay 网络，不做全网用户发现，也不维护全局路由目录。
 
 ## 仓库结构
 
-- `Common/`：协议消息与业务处理器
-- `Core/`：安全配置、用户会话、peer 网络、RSA 服务
-- `deploy/`：本地测试 / 局域网证书 / 生产准备脚本
-- `web-client/`：React Web 客户端
-- `android-client/`：Android 客户端
+- `Common/`：消息模型、消息处理器、协议解析
+- `Core/`：RSA、安全配置、用户会话、peer 网络
+- `deploy/`：本地测试、局域网证书、生产准备脚本
+- `Program.cs`：服务入口
+- `OnlineMsgServer.csproj`：服务端项目文件
 
 ## 运行依赖
 
@@ -36,7 +23,7 @@
 - `Docker`
 - `openssl`
 
-本仓库附带的 `deploy/*.sh` 脚本按 macOS 环境编写，依赖：
+附带的 `deploy/*.sh` 当前按 macOS 环境编写，依赖：
 
 - `ipconfig`
 - `route`
@@ -58,11 +45,11 @@ cd <repo-root>
 bash deploy/deploy_test_ws.sh
 ```
 
-脚本会：
+这个脚本会：
 
 - 生成或复用协议私钥 `deploy/keys/server_rsa_pkcs8.b64`
 - 构建 Docker 镜像
-- 以 `REQUIRE_WSS=false` 启动单节点服务
+- 以 `REQUIRE_WSS=false` 启动服务
 
 ### 2. 局域网测试：WSS
 
@@ -70,14 +57,12 @@ bash deploy/deploy_test_ws.sh
 bash deploy/redeploy_with_lan_cert.sh
 ```
 
-脚本会：
+这个脚本会：
 
 - 自动探测当前局域网 IP
 - 生成包含 LAN IP 的自签名证书
-- 生成运行时使用的 `server.pfx`
-- 构建镜像并以 `REQUIRE_WSS=true` 启动容器
-
-适合 Android 真机、同网段设备和浏览器本地联调。
+- 生成运行时用的 `server.pfx`
+- 构建镜像并以 `REQUIRE_WSS=true` 启动服务
 
 ### 3. 生产准备
 
@@ -95,17 +80,7 @@ bash deploy/prepare_prod_release.sh
 - `prod.env`
 - Docker 镜像 tar（可选）
 - 运行示例脚本
-- 运行时证书与协议私钥
-
-如果只是临时测试，也可以生成自签名证书：
-
-```bash
-DOMAIN=chat.example.com \
-SAN_LIST='DNS:www.chat.example.com,IP:10.0.0.8' \
-GENERATE_SELF_SIGNED=true \
-CERT_PASSWORD='change-me' \
-bash deploy/prepare_prod_release.sh
-```
+- 运行时证书和协议私钥
 
 ## 手动 Docker 启动
 
@@ -136,8 +111,6 @@ docker run -d --name onlinemsgserver --restart unless-stopped \
 
 ### 第二节点：通过 peer 连到第一节点
 
-下面这个例子会启动第二个节点，对外提供 `13174`，并主动连到第一节点：
-
 ```bash
 docker run -d --name onlinemsgserver-peer2 --restart unless-stopped \
   -p 13174:13174 \
@@ -152,14 +125,13 @@ docker run -d --name onlinemsgserver-peer2 --restart unless-stopped \
   onlinemsgserver:latest
 ```
 
-这里有一个很重要的约束：
+注意：
 
-- 如果客户端访问的是 `wss://host:13174/`
-- 那容器内 `LISTEN_PORT` 也应当是 `13174`
+- 客户端访问的端口和容器内 `LISTEN_PORT` 最好保持一致
+- `WebSocketSharp` 会校验握手里的 `Host: host:port`
+- 如果对外访问端口和服务实际监听端口不一致，可能直接返回 `400 Bad Request`
 
-`WebSocketSharp` 会校验握手请求里的 `Host: host:port`，容器内监听端口和客户端看到的端口不一致时，可能直接返回 `400 Bad Request`。
-
-## 协议说明
+## 协议概览
 
 ### 加密方式
 
@@ -167,15 +139,15 @@ docker run -d --name onlinemsgserver-peer2 --restart unless-stopped \
 - 传输加密：`RSA/ECB/OAEPWithSHA-256AndMGF1Padding`
 - 明文按 `190` 字节分块加密
 - 密文按 `256` 字节分块解密
-- WebSocket 上传输的是 base64 字符串
+- WebSocket 上传输内容为 base64 字符串
 
 ### 通用包结构
 
-客户端发给服务端的明文结构如下，随后再整体用服务端公钥加密：
+客户端发给服务端的明文结构如下，随后整体用服务端公钥加密：
 
 ```json
 {
-  "type": "publickey|forward|broadcast",
+  "type": "publickey|forward|broadcast|rename",
   "key": "",
   "data": {}
 }
@@ -183,14 +155,12 @@ docker run -d --name onlinemsgserver-peer2 --restart unless-stopped \
 
 ### 首包：服务端 -> 客户端（明文）
 
-客户端建立连接后，服务端立即发送：
-
 ```json
 {
   "type": "publickey",
   "data": {
     "publicKey": "服务端公钥(base64 SPKI)",
-    "authChallenge": "一次性挑战值",
+    "authChallenge": "一次性 challenge",
     "authTtlSeconds": 120,
     "certFingerprintSha256": "TLS证书指纹(启用WSS时)"
   }
@@ -205,22 +175,6 @@ docker run -d --name onlinemsgserver-peer2 --restart unless-stopped \
 - `data.timestamp`：Unix 秒级时间戳
 - `data.nonce`：随机串
 - `data.signature`：客户端私钥签名
-
-示例：
-
-```json
-{
-  "type": "publickey",
-  "key": "guest-123456",
-  "data": {
-    "publicKey": "base64-spki",
-    "challenge": "challenge-from-server",
-    "timestamp": 1739600000,
-    "nonce": "random-string",
-    "signature": "base64-signature"
-  }
-}
-```
 
 签名原文：
 
@@ -238,19 +192,6 @@ publickey
 - `key`：目标用户公钥
 - `data.payload`：消息内容
 - `data.timestamp` / `data.nonce` / `data.signature`：发送者签名信息
-
-```json
-{
-  "type": "forward",
-  "key": "target-user-public-key",
-  "data": {
-    "payload": "hello",
-    "timestamp": 1739600000,
-    "nonce": "random-string",
-    "signature": "base64-signature"
-  }
-}
-```
 
 签名原文：
 
@@ -277,41 +218,47 @@ broadcast
 {nonce}
 ```
 
-### 连接流程
+### 改名：`type=rename`
 
-1. 客户端建立 WebSocket 连接。
-2. 服务端发送明文 `publickey` 首包。
-3. 客户端用自己的私钥签名后发送 `type=publickey` 鉴权包。
-4. 服务端返回加密的 `auth_ok`。
-5. 客户端开始发送 `forward` / `broadcast`。
+- `key`：保留为空字符串
+- `data.payload`：新的显示名
+- `data.timestamp` / `data.nonce` / `data.signature`：发送者签名信息
+
+签名原文：
+
+```text
+rename
+{key}
+{newDisplayName}
+{timestamp}
+{nonce}
+```
+
+成功后服务端会回：
+
+- `rename_ok`
+- 或 `rename_error`
+
+普通用户不能把自己的名字改成保留的 peer 前缀。
 
 ## Peer 网络说明
 
-Peer 网络不引入新的客户端外层协议。节点之间也是普通登录用户，只是服务端会把这类会话当成 peer 处理。
+peer 网络不引入新的客户端外层协议。节点之间也是普通登录用户，只是服务端会把它们识别为 peer 会话并走不同的转发逻辑。
 
 当前行为：
 
-- 本地广播：先发给本地普通客户端，再扩散到 peer
+- 本地广播：发给本地普通客户端，再扩散给 peer
 - 从 peer 收到广播：投递给本地普通客户端，再继续扩散
 - 本地私聊命中：直接投递
-- 本地私聊 miss：包装为内部 relay 后继续发给 peer
-- peer 收到私聊 relay：本地命中就投递，命不中就继续向其他 peer 转发
+- 本地私聊 miss：包装成内部 relay 后继续发给 peer
+- peer 收到 relay：本地命中就投递，命不中就继续向其他 peer 转发
 
 当前实现特点：
 
 - 不做用户发现
-- 不维护“谁在哪台服务器”的路由表
-- 只保证尽力转发
-- 依赖短期 `seen-cache` 防止消息在环路里重复扩散
-
-### Peer 命名
-
-为了让客户端界面更像普通聊天用户：
-
-- 服务端内部仍用 `peer:` 前缀区分 peer 会话
-- 发给客户端前会去掉这个内部前缀
-- 如果显式设置了 `PEER_NODE_NAME=peer-node-b`，客户端看到的是 `peer-node-b`
-- 如果没有显式设置 `PEER_NODE_NAME`，默认自动生成 `guest-xxxxxx`
+- 不维护全网路由表
+- 只做尽力转发
+- 依赖短期 `seen-cache` 防环路和重复扩散
 
 ## 环境变量
 
@@ -326,7 +273,7 @@ Peer 网络不引入新的客户端外层协议。节点之间也是普通登录
 
 - `SERVER_PRIVATE_KEY_B64`：协议私钥（PKCS8 base64）
 - `SERVER_PRIVATE_KEY_PATH`：协议私钥文件路径
-- `ALLOW_EPHEMERAL_SERVER_KEY`：若未提供私钥，是否允许启动临时内存私钥，默认 `false`
+- `ALLOW_EPHEMERAL_SERVER_KEY`：未提供私钥时是否允许启动临时内存私钥，默认 `false`
 
 ### 安全限制
 
@@ -344,49 +291,22 @@ Peer 网络不引入新的客户端外层协议。节点之间也是普通登录
 
 - `PEER_NODE_NAME`：peer 登录名；未显式配置时自动生成 `guest-xxxxxx`
 - `PEER_USER_PREFIX`：内部保留前缀，默认 `peer:`
-- `PEER_URLS`：要主动连接的 peer 地址，逗号分隔
-- `PEER_RECONNECT_SECONDS`：peer 断线后的重连间隔，默认 `5`
+- `PEER_URLS`：主动连接的 peer 地址，逗号分隔
+- `PEER_RECONNECT_SECONDS`：peer 断线重连间隔，默认 `5`
 
-## 本地调试建议
-
-### Android 连 `ws://`
-
-Android 9 之后默认禁止明文流量。若用 `ws://` 调试，需要客户端显式允许 cleartext。
-
-### Android 连 `wss://`
-
-若服务端使用自签名证书，需要满足其一：
-
-- 设备/模拟器信任这张 CA
-- Android debug 包内置该 CA 的信任配置
-
-### 多实例本地测试
-
-同一台机器上起多个节点时，建议：
-
-- 为每个节点分配不同 `LISTEN_PORT`
-- 对外映射端口和 `LISTEN_PORT` 保持一致
-- 第一个节点使用固定协议私钥
-- 第二个测试节点可使用 `ALLOW_EPHEMERAL_SERVER_KEY=true`
-
-## 排错
+## 常见问题
 
 ### `expected HTTP 101 but was 400`
 
-常见原因：
+优先检查：
 
-- 容器内 `LISTEN_PORT` 与客户端访问端口不一致
-- 客户端实际访问了错误的 `Host: port`
+- 对外访问端口是否和 `LISTEN_PORT` 一致
+- 代理或 Docker 端口映射后，握手里的 `Host: port` 是否仍然正确
 
-### Android 显示“未收到服务器首包”
+### Android / 某些客户端显示“未收到服务器首包”
 
-当前服务端已禁用 WebSocket 压缩扩展协商，以避免某些 Android/OkHttp 路径拿不到压缩后的首个 `publickey` Hello。
+当前服务端已禁用 WebSocket 压缩扩展协商，避免某些 Android/OkHttp 路径拿不到压缩后的首个 `publickey` Hello。
 
-### Peer 连不上 WSS
+### peer 连不上 WSS
 
-当前 peer 出站连接使用 .NET `ClientWebSocket`，可以直连 `wss://` peer。若是自签名测试环境，请确认目标地址可达，并尽量使用稳定的局域网地址或 `host.docker.internal`。
-
-## 相关文档
-
-- Web 客户端：[web-client/README.md](/Users/solux/Codes/OnlineMsgServer/web-client/README.md)
-- Android 客户端：[android-client/README.md](/Users/solux/Codes/OnlineMsgServer/android-client/README.md)
+当前 peer 出站连接使用 .NET `ClientWebSocket`，可直接连 `wss://` peer。若是自签名测试环境，请确认目标地址可达，并尽量使用稳定的局域网地址或 `host.docker.internal`。

@@ -22,6 +22,7 @@ namespace OnlineMsgServer.Common
                     "publickey" => JsonSerializer.Deserialize<PublicKeyMessage>(root.GetRawText(), options),
                     "forward" => JsonSerializer.Deserialize<ForwardMessage>(root.GetRawText(), options),
                     "broadcast" => JsonSerializer.Deserialize<BroadcastMessage>(root.GetRawText(), options),
+                    "rename" => JsonSerializer.Deserialize<RenameMessage>(root.GetRawText(), options),
                     _ => null
                 };
                 return message ?? throw new JsonException($"{instruct} 反序列化失败");
